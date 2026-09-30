@@ -1,0 +1,106 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 26;
+  width: min(280px, calc(100vw - 32px));
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  animation: pop 0.14s ease;
+}
+
+.ask {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.file {
+  margin: 0 0 13px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  /* File names are long and must not be truncated — the point is to read it. */
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.discard,
+.save {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.discard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.discard:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.save {
+  border: none;
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.save:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.discard:disabled,
+.save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@keyframes pop {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop {
+    animation: none;
+  }
+}

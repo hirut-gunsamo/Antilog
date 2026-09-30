@@ -1,0 +1,142 @@
+.page {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  /* Vertical padding collapses first on short screens so the card keeps its
+     breathing room on a laptop but never gets clipped on a landscape phone. */
+  padding: clamp(16px, 5vh, 40px) 16px;
+  background:
+    radial-gradient(
+      1000px 500px at 50% -10%,
+      color-mix(in srgb, var(--brand) 22%, transparent),
+      transparent
+    ),
+    var(--page);
+}
+
+.card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+  /* Padding and rhythm scale with the viewport rather than stepping at a
+     breakpoint, so there is no width where the card looks cramped. */
+  padding: clamp(24px, 6vw, 40px) clamp(20px, 5vw, 36px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 4vw, 22px);
+  accent-color: var(--brand);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+  /* Dark green — the readable member of the brand green family. */
+  color: var(--brand-text);
+}
+
+.subtitle {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.field input {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  /* 16px keeps iOS Safari from zooming the page when a field takes focus. */
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.field input::placeholder {
+  color: var(--muted);
+}
+
+.field input:focus-visible {
+  border-color: var(--brand-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+/* Chrome paints autofilled inputs a fixed pale yellow, which ignores the
+   theme and is unreadable in dark mode. Repaint them with our own surface. */
+.field input:-webkit-autofill,
+.field input:-webkit-autofill:hover,
+.field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  caret-color: var(--text);
+}
+
+.error {
+  margin: 0;
+  padding: 11px 13px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  color: var(--critical, var(--danger));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.submit {
+  margin-top: 6px;
+  padding: 15px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand-strong);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--brand-strong-hover);
+}
+
+.submit:focus-visible {
+  outline: 2px solid var(--brand-strong);
+  outline-offset: 2px;
+}
+
+.submit:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field input,
+  .submit {
+    transition: none;
+  }
+}

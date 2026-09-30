@@ -1,0 +1,974 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1280px;
+}
+
+/* ---------- Page head ---------- */
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The shell's page header owns the title above 900px, so this duplicate only
+   shows where that header is hidden. */
+.mobileHeading {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobileHeading {
+    display: block;
+  }
+}
+
+.title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(19px, 2vw, 23px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  /* Stays right once the heading beside it is hidden on desktop. */
+  margin-left: auto;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.primary:hover {
+  background: var(--brand-dark);
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ghost:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.select {
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.select:focus-visible,
+.primary:focus-visible,
+.ghost:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+/* ---------- Summary tiles ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--tile-line);
+  background: var(--tile-bg);
+  min-width: 0;
+}
+
+.tileIcon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--tile-ink);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.tileLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.tileValue {
+  display: block;
+  margin-top: 1px;
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+/* Tones are named after the mockup's four cards. Each sets a fill, a hairline
+   and the icon colour; everything else is shared. */
+.tile[data-tone='green'] {
+  --tile-bg: color-mix(in srgb, var(--brand) 13%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--brand) 38%, transparent);
+  --tile-ink: var(--brand-text);
+}
+
+.tile[data-tone='blue'] {
+  --tile-bg: color-mix(in srgb, var(--info) 11%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--info) 34%, transparent);
+  --tile-ink: #0e7f97;
+}
+
+.tile[data-tone='amber'] {
+  --tile-bg: color-mix(in srgb, var(--warning) 13%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--warning) 36%, transparent);
+  --tile-ink: #a87a00;
+}
+
+.tile[data-tone='red'] {
+  --tile-bg: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--danger) 30%, transparent);
+  --tile-ink: #c92a33;
+}
+
+/* ---------- Tabs ---------- */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.tabList {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabList::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  padding: 10px 13px 12px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tabActive {
+  color: var(--brand-text);
+  font-weight: 600;
+}
+
+.tabActive::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand-text);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Filters ---------- */
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.6fr) repeat(3, minmax(0, 1fr)) auto;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  padding: 9px 12px 9px 33px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+
+.search input::placeholder {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.search input:focus-visible {
+  border-color: var(--brand-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.reset {
+  padding: 8px 13px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--brand-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.reset:hover:not(:disabled) {
+  background: var(--brand-subtle);
+}
+
+.reset:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* ---------- Table ---------- */
+
+.scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* A row action menu hangs below its button, and the last row's hangs below
+   the table. `overflow-x: auto` alone still clips the other axis — CSS turns
+   the second `visible` into `auto` — so that menu was cut off and its
+   buttons could not be clicked at all. While a menu is open the box stops
+   clipping; the columns are shed at narrow widths rather than scrolled, so
+   there is almost never a sideways offset to lose. */
+.scroll:has([role='menu']) {
+  overflow: visible;
+}
+
+.table {
+  width: 100%;
+  /* No min-width: columns are shed at narrow widths instead of forcing the
+     page to scroll sideways. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding-left: 11px;
+  padding-right: 11px;
+  text-align: left;
+}
+
+.table th {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table th:first-child {
+  border-left: 1px solid var(--border);
+  border-radius: 9px 0 0 0;
+}
+
+.table th:last-child {
+  border-right: 1px solid var(--border);
+  border-radius: 0 9px 0 0;
+}
+
+.table td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tick {
+  width: 38px;
+}
+
+.tick input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--brand-text);
+  cursor: pointer;
+}
+
+.actionsCol {
+  width: 62px;
+  text-align: right;
+}
+
+
+
+
+
+
+
+
+
+
+.status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status[data-state='IN_STOCK'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='LOW_STOCK'] {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+.status[data-state='OUT_OF_STOCK'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+/* ---------- Row menu ---------- */
+
+.menuWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Reads as a button rather than three faint dots, so it is findable. */
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* The dots are zero-length segments with round caps, so their weight is the
+   stroke width — at the icon set's default 1.8 they almost disappear on white. */
+.iconButton svg {
+  stroke-width: 3;
+}
+
+.iconButton:hover,
+.iconButton[aria-expanded='true'] {
+  background: var(--brand-subtle);
+  border-color: var(--brand);
+  color: var(--brand-text);
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  /* Above the phone tab bar (z-index 20), which is fixed to the bottom of
+     the screen and would otherwise paint over a menu opened near it and
+     swallow the taps. Still below the More sheet (25/26). */
+  z-index: 24;
+  min-width: min(176px, calc(100vw - 56px));
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu button:hover {
+  background: var(--surface-2);
+}
+
+.menu button em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* ---------- Footer ---------- */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+}
+
+.showing {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.pager button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.pager button:hover:not(:disabled):not(.pageOn) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.pager button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pageOn {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+  font-weight: 700;
+}
+
+.gap {
+  padding: 0 3px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- Skeletons ---------- */
+
+.skeletonTile,
+.skeletonCard {
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.skeletonTile {
+  height: 70px;
+}
+
+.skeletonCard {
+  height: 400px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- Tablet ---------- */
+
+@media (max-width: 1100px) {
+  .filters {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .search {
+    grid-column: 1 / -1;
+  }
+
+  .reset {
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 1080px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+/* ---------- Sales-specific cells ---------- */
+
+.ref {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.time {
+  color: var(--muted);
+}
+
+.status[data-state='APPROVED'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='SUBMITTED'] {
+  background: var(--info-subtle);
+  color: #0e7f97;
+}
+
+.status[data-state='DRAFT'] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.status[data-state='REJECTED'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+/* Dimmed while its row has a request in flight. */
+.table tbody tr[data-busy='true'] {
+  opacity: 0.55;
+}
+
+/* ---------- Tile change indicator ---------- */
+
+.tileBody {
+  min-width: 0;
+}
+
+.tileChange {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileChange[data-dir='up'] {
+  color: var(--success-text);
+}
+
+.tileChange[data-dir='down'] {
+  color: var(--danger);
+}
+
+.tileChange em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ---------- Date range ---------- */
+
+.dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.dates input {
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 0;
+  outline: none;
+  min-width: 0;
+}
+
+.dates:focus-within {
+  border-color: var(--brand-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+
+/* ---------- Statuses ---------- */
+
+.status[data-state='APPROVED'],
+.status[data-state='FULFILLED'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='PENDING'] {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+.status[data-state='REJECTED'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.status[data-state='CANCELLED'] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* A second line under a cell's main value: the role under a name, the unit
+   count under the item count. */
+.sub {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------- Tablet: shed columns rather than scroll ----------
+
+   Eight columns. The select column goes first, then the date (the reference
+   already carries it), then the From → To route, which the details panel
+   spells out anyway. Request ID, Requested By, Items, Status and Actions all
+   survive to the card breakpoint. */
+
+@media (max-width: 1240px) and (min-width: 721px) {
+  .table td[data-label='Requested By'],
+  .table td[data-label='Route'] {
+    white-space: normal;
+  }
+
+  .table th:nth-child(1),
+  .table td:nth-child(1) {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) and (min-width: 721px) {
+  .table th:nth-child(3),
+  .table td:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (max-width: 940px) and (min-width: 721px) {
+  .table th:nth-child(5),
+  .table td:nth-child(5) {
+    display: none;
+  }
+}
+
+/* ---------- Phone: one card per request ---------- */
+
+@media (max-width: 720px) {
+  .head {
+    align-items: stretch;
+  }
+
+  .headActions {
+    width: 100%;
+  }
+
+  .headActions .primary {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scroll {
+    overflow-x: visible;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 30px;
+    grid-template-areas:
+      'ref   status act'
+      'meta  meta   meta'
+      'items items  items';
+    align-items: center;
+    column-gap: 11px;
+    row-gap: 3px;
+    padding: 12px 13px;
+    margin-bottom: 9px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .table tbody tr:hover td {
+    background: none;
+  }
+
+  .table td {
+    padding: 0;
+    border: none;
+    white-space: normal;
+    min-width: 0;
+  }
+
+  /* Folded into the meta line or the details panel. */
+  .table td[data-label='Date'],
+  .table td[data-label='Requested By'],
+  .table td[data-label='Route'],
+  .table td[data-col='route'],
+  .table td.tick {
+    display: none;
+  }
+
+  .table td[data-label='Request ID'] {
+    grid-area: ref;
+    font-size: 13.5px;
+  }
+
+  /* The categories, each with its Approve and Reject: full width. */
+  .table td[data-col='items'] {
+    grid-area: items;
+    font-size: 13px;
+    padding-top: 6px;
+  }
+
+  .table td[data-label='Status'] {
+    grid-area: status;
+    text-align: right;
+  }
+
+  /* Rebuilds "Branch → Owner · date time" from the row's own values. */
+  .table tbody tr::after {
+    grid-area: meta;
+    content: attr(data-meta);
+    font-size: 11.5px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .actionsCol {
+    grid-area: act;
+    position: static;
+    width: auto;
+    justify-self: end;
+  }
+
+  .menu {
+    right: 0;
+    top: auto;
+    bottom: calc(100% + 5px);
+  }
+
+  .foot {
+    justify-content: center;
+  }
+
+  .showing {
+    width: 100%;
+    text-align: center;
+  }
+
+  .pager {
+    margin: 0 auto;
+  }
+}
+
+/* ---------- Dark mode ---------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .status[data-state='PENDING'] {
+    color: var(--warning);
+  }
+}
+
+:root[data-theme='dark'] .status[data-state='PENDING'] {
+  color: var(--warning);
+}
+
+/* ---------- Clickable rows ----------
+
+   The row opens its details panel. A <tr> cannot take keyboard focus, so this
+   is a convenience on top of the row's own controls — the actions menu (and on
+   Approvals, the View button) remain the accessible path, and both stop the
+   click from reaching the row. */
+
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:hover td {
+  background: var(--surface-2);
+}
+
+/* The reference cell picks up the brand colour on hover, so it reads as the
+   thing being opened rather than the whole strip lighting up for no reason. */
+.clickableRow:hover .ref {
+  color: var(--brand-text);
+}
+
+@media (max-width: 720px) {
+  .clickableRow:active {
+    background: var(--surface-2);
+  }
+}

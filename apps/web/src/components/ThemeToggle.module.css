@@ -1,0 +1,125 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  width: var(--toggle-size, 34px);
+  height: var(--toggle-size, 34px);
+  /* Full-strength text colour, so these read as firmly as the page title
+     rather than fading into the header. A bar with a colour of its own — the
+     phone header — overrides these three to match its bell. */
+  border: 1px solid
+    var(--toggle-border, color-mix(in srgb, var(--text) 26%, var(--border)));
+  border-radius: var(--toggle-radius, 10px);
+  background: var(--toggle-bg, var(--surface));
+  color: var(--toggle-fg, var(--text));
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.button:hover,
+.button[aria-expanded='true'] {
+  background: var(--brand-subtle);
+  border-color: var(--brand);
+  color: var(--brand-text);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 24;
+  min-width: min(158px, calc(100vw - 40px));
+  max-width: calc(100vw - 24px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--surface-2);
+}
+
+.on {
+  color: var(--brand-text);
+  font-weight: 600;
+}
+
+.tick {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+/* On a phone the toggle sits in the compact header, so it shrinks with the
+   other header controls rather than crowding the title. */
+@media (max-width: 900px) {
+  .button {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* The language control reuses this shell but shows a code rather than an icon. */
+.langButton {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.langCode {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+/* The Refresh button's "new version ready" dot. */
+.dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--brand);
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

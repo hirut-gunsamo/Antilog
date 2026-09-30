@@ -1,0 +1,532 @@
+/* Original prints in the brand green, copies in the second series colour, the
+   same pair everywhere on this card. */
+.wrap {
+  --nid-original: var(--series-1);
+  --nid-copy: var(--series-2);
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- Header actions ---------- */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.add:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -8px var(--brand-dark);
+}
+
+.viewAll {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+  white-space: nowrap;
+}
+
+.viewAll:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Period tiles (also the picker) ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 15px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.tile:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand-dark) 55%, transparent);
+  box-shadow: 0 10px 22px -16px rgba(23, 23, 23, 0.35);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+.tile[data-active='true'] {
+  background: var(--brand-subtle);
+  border-color: var(--brand-dark);
+  box-shadow: inset 0 0 0 1px var(--brand-dark);
+}
+
+.tileHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.tileHead em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--brand-text);
+  white-space: nowrap;
+}
+
+.tile strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: clamp(22px, 2.4vw, 30px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.tile strong small {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* The original/copy mix as one thin bar. */
+.split {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.split i {
+  display: block;
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.original {
+  background: var(--nid-original);
+}
+
+.copy {
+  background: var(--nid-copy);
+}
+
+.tileSplit,
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.tileSplit span,
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tileSplit span::before,
+.legend span::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--nid-original);
+}
+
+.tileSplit span[data-kind='copy']::before,
+.legend span[data-kind='copy']::before {
+  background: var(--nid-copy);
+}
+
+/* ---------- Panels: trend and branches ---------- */
+
+.panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.panelHead h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panelNote {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+/* What the hovered day holds, above the bars so the pointer never hides it. */
+.readout {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.readout strong {
+  color: var(--text);
+}
+
+.readout > span {
+  color: var(--muted);
+}
+
+.trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  /* Grows to match the branch list beside it, never shorter than this. */
+  flex: 1;
+  min-height: 130px;
+  border-bottom: 1px solid var(--axis);
+}
+
+.day {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  outline: none;
+  cursor: default;
+}
+
+/* Days outside the chosen period fade back; the window stays bright. */
+.dayBar {
+  width: 78%;
+  max-width: 22px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+  opacity: 0.28;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.day[data-in='true'] .dayBar {
+  opacity: 1;
+}
+
+.day[data-hover='true'] .dayBar,
+.day:focus-visible .dayBar {
+  opacity: 1;
+  transform: scaleX(1.15);
+}
+
+.day:focus-visible {
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.dayBar i {
+  display: block;
+  flex-basis: 0;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------- Branch ranking ---------- */
+
+.branches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.branches li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.rank[data-first='true'] {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.branchMain {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.branchTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.branchTop strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchTop > span {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.branchTop em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.branchTop b {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.branchFoot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.none {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Empty month ---------- */
+
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.emptyIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+}
+
+.empty > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.empty strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.empty p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.emptyAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--brand-dark);
+  color: var(--brand-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.emptyAction:hover {
+  background: var(--brand-subtle);
+}
+
+/* ---------- Loading ---------- */
+
+.skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skeleton span {
+  height: 112px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- Smaller screens ---------- */
+
+@media (max-width: 1000px) {
+  .panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Phones: the three tiles become a swipeable row, so the periods stay side
+   by side instead of stacking into a long column. */
+@media (max-width: 640px) {
+  .tiles,
+  .skeleton {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 4px;
+    margin: 0 -2px;
+    scrollbar-width: none;
+  }
+
+  .tiles::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tile,
+  .skeleton span {
+    flex: 0 0 72%;
+    scroll-snap-align: start;
+  }
+
+  .add span {
+    display: none;
+  }
+
+  .add {
+    padding: 7px;
+  }
+
+  .empty {
+    flex-wrap: wrap;
+  }
+
+  .emptyAction {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .add,
+  .split i,
+  .dayBar,
+  .skeleton span {
+    transition: none;
+    animation: none;
+  }
+
+  .tile:hover,
+  .add:hover {
+    transform: none;
+  }
+}

@@ -1,0 +1,130 @@
+/* Sits above the panels (z-index 40) so a confirmation is still visible if a
+   dialog is closing behind it. */
+.stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: rise 0.16s ease;
+}
+
+.text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+a.text:hover {
+  text-decoration: underline;
+}
+
+.toast button {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.toast button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.toast[data-kind='success'] {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+
+.toast[data-kind='success'] .mark {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.toast[data-kind='error'] {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.toast[data-kind='error'] .mark {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.toast[data-kind='info'] {
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+}
+
+.toast[data-kind='info'] .mark {
+  background: color-mix(in srgb, var(--info) 14%, var(--surface));
+  color: #0e7f97;
+}
+
+.stack[data-placement='top'] {
+  top: 72px;
+  bottom: auto;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+/* On a phone the bottom tab bar owns the bottom edge, so the stack clears it. */
+@media (max-width: 900px) {
+  .stack {
+    right: 12px;
+    left: 12px;
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .stack[data-placement='top'] {
+    top: 64px;
+    bottom: auto;
+  }
+
+  .toast {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

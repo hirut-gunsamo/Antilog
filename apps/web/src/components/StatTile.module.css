@@ -1,0 +1,63 @@
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* A hairline of the tile's accent, not a full colour wash - the number stays
+   the loudest thing in the tile. */
+.tile::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--tile-accent, transparent);
+}
+
+.label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.value {
+  font-size: 25px;
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .value {
+    font-size: 21px;
+  }
+}
+
+.good {
+  color: var(--success-text);
+}
+
+.warning {
+  color: var(--warning);
+}
+
+.critical {
+  color: var(--danger);
+}
+
+.foot {
+  font-size: 12px;
+  color: var(--text-2);
+}

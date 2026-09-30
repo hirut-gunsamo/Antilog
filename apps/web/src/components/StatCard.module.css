@@ -1,0 +1,294 @@
+/* The card sizes itself from its own width (a container query), not the
+   viewport's, so it looks right in any grid: four across on a laptop, two on
+   a phone, or inside a narrower dashboard. */
+.card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  container-type: inline-size;
+  border-radius: 12px;
+  border: 1px solid var(--tint-border);
+  background: var(--tint-bg);
+  padding: clamp(12px, 1.2vw, 16px) clamp(13px, 1.25vw, 17px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* A soft disc of the card's colour behind the icon. It swells on hover, which
+   is most of what makes the card feel alive without moving the figures. */
+.card::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -18%;
+  right: -12%;
+  /* Proportional, so it stays a corner accent on a narrow phone tile. */
+  width: clamp(80px, 38%, 128px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tint-ink) 9%, transparent);
+  transition: transform 0.28s ease;
+}
+
+/* ---------- Clickable variant ---------- */
+
+.clickable {
+  color: inherit;
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.clickable:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--tint-ink) 45%, transparent);
+  box-shadow: 0 12px 26px -14px color-mix(in srgb, var(--tint-ink) 55%, transparent);
+}
+
+.clickable:hover::before {
+  transform: scale(1.3);
+}
+
+.clickable:active {
+  transform: translateY(-1px) scale(0.99);
+  box-shadow: 0 6px 14px -10px color-mix(in srgb, var(--tint-ink) 55%, transparent);
+}
+
+.clickable:focus-visible {
+  outline: 2px solid var(--tint-ink);
+  outline-offset: 2px;
+}
+
+/* ---------- Tints ---------- */
+
+.green {
+  --tint-bg: #eaf7ee;
+  --tint-border: #d3ecda;
+  --tint-ink: #0f8a3c;
+}
+
+.blue {
+  --tint-bg: #e8f1fd;
+  --tint-border: #d2e3fa;
+  --tint-ink: #2a78d6;
+}
+
+.red {
+  --tint-bg: #fdeceb;
+  --tint-border: #f8d8d6;
+  --tint-ink: #d03b3b;
+}
+
+.emerald {
+  --tint-bg: #e8f6f0;
+  --tint-border: #d2ebe1;
+  --tint-ink: #0e8f68;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .green {
+    --tint-bg: #12241a;
+    --tint-border: #1e3a28;
+    --tint-ink: #34c26a;
+  }
+  :root:not([data-theme='light']) .blue {
+    --tint-bg: #111e2e;
+    --tint-border: #1c3049;
+    --tint-ink: #58a0f0;
+  }
+  :root:not([data-theme='light']) .red {
+    --tint-bg: #2a1616;
+    --tint-border: #442222;
+    --tint-ink: #ec6b6b;
+  }
+  :root:not([data-theme='light']) .emerald {
+    --tint-bg: #10241d;
+    --tint-border: #1b3a30;
+    --tint-ink: #31bd90;
+  }
+}
+
+:root[data-theme='dark'] .green {
+  --tint-bg: #12241a;
+  --tint-border: #1e3a28;
+  --tint-ink: #34c26a;
+}
+:root[data-theme='dark'] .blue {
+  --tint-bg: #111e2e;
+  --tint-border: #1c3049;
+  --tint-ink: #58a0f0;
+}
+:root[data-theme='dark'] .red {
+  --tint-bg: #2a1616;
+  --tint-border: #442222;
+  --tint-ink: #ec6b6b;
+}
+:root[data-theme='dark'] .emerald {
+  --tint-bg: #10241d;
+  --tint-border: #1b3a30;
+  --tint-ink: #31bd90;
+}
+
+/* ---------- Label, figure, delta (left) ---------- */
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scales with the card: large on a wide tile, never below 18px. */
+.value {
+  font-size: clamp(16px, 9cqi, 26px);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.delta em {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 999px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.up {
+  color: var(--success-text);
+  background: color-mix(in srgb, var(--success) 13%, transparent);
+}
+
+.down {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.deltaNote {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* ---------- Icon (right) ---------- */
+
+/* A solid tile in the card's own colour, white glyph on top. */
+.plate {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--tint-ink);
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--tint-ink) 75%, transparent);
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.plate svg {
+  width: 22px;
+  height: 22px;
+}
+
+.clickable:hover .plate {
+  transform: scale(1.07) rotate(-5deg);
+}
+
+/* ---------- Narrow cards ---------- */
+
+/* Two across on a phone: a smaller icon, and the delta keeps only its
+   percentage. */
+@container (max-width: 230px) {
+  .plate {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .plate svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .label {
+    font-size: 11.5px;
+  }
+
+  .deltaNote {
+    display: none;
+  }
+}
+
+/* Phone tiles: the icon is pinned to the corner beside the label, so the
+   figure below can use the full width and "ETB 124,635" is never cut off. */
+@container (max-width: 175px) {
+  .plate {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+
+  .plate svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .label {
+    padding-right: 38px;
+    white-space: normal;
+    line-height: 1.25;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clickable,
+  .card::before,
+  .plate {
+    transition: none;
+  }
+
+  .clickable:hover,
+  .clickable:active,
+  .clickable:hover .plate,
+  .clickable:hover::before {
+    transform: none;
+  }
+}

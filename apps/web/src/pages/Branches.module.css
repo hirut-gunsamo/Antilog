@@ -1,0 +1,557 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+  min-width: 0;
+}
+
+/* ---------- Head ---------- */
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The shell's header owns the title above 900px. */
+.mobileHeading {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobileHeading {
+    display: block;
+    width: 100%;
+  }
+
+  /* Controls drop to their own full-width row under the heading: the count
+     on the left, Add Branch on the right. */
+  .headActions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+}
+
+.title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(19px, 2vw, 23px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.summary {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.primary:hover {
+  background: var(--brand-dark);
+}
+
+.primary:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+/* ---------- Table ---------- */
+
+/* Nothing should overflow now that the table is fluid; this stays as a last
+   resort rather than the normal case. */
+.scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* A row action menu hangs below its button, and the last row's hangs below
+   the table. `overflow-x: auto` alone still clips the other axis — CSS turns
+   the second `visible` into `auto` — so that menu was cut off and its
+   buttons could not be clicked at all. While a menu is open the box stops
+   clipping; the columns are shed at narrow widths rather than scrolled, so
+   there is almost never a sideways offset to lose. */
+.scroll:has([role='menu']) {
+  overflow: visible;
+}
+
+.table {
+  width: 100%;
+  /* Deliberately no min-width: columns are dropped at narrow widths instead
+     of forcing the page to scroll sideways. */
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding-left: 11px;
+  padding-right: 11px;
+  text-align: left;
+}
+
+.table th {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table th:first-child {
+  border-left: 1px solid var(--border);
+  border-radius: 9px 0 0 0;
+}
+
+.table th:last-child {
+  border-right: 1px solid var(--border);
+  border-radius: 0 9px 0 0;
+}
+
+.table td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+
+.table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+/* Dimmed while its row has a request in flight. */
+.table tbody tr[data-busy='true'] {
+  opacity: 0.55;
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+  white-space: nowrap;
+}
+
+.person {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.person strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.person span {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status[data-state='open'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='closed'] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* ---------- Row menu ---------- */
+
+.actionsCol {
+  width: 62px;
+  text-align: right;
+}
+
+.menuWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.iconButton svg {
+  stroke-width: 3;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton[aria-expanded='true'] {
+  background: var(--brand-subtle);
+  border-color: var(--brand);
+  color: var(--brand-text);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 2px;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  /* Above the phone tab bar (z-index 20), which is fixed to the bottom of
+     the screen and would otherwise paint over a menu opened near it and
+     swallow the taps. Still below the More sheet (25/26). */
+  z-index: 24;
+  min-width: min(202px, calc(100vw - 56px));
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.menu button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.menuDanger {
+  color: var(--danger);
+}
+
+.menuDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* ---------- Tablet: shed columns rather than scroll ----------
+
+   Room runs out twice. Below 1150px six columns no longer fit, and below
+   1080px five do not either — the sidebar is still taking 236px until 900px,
+   so the squeeze is worst just above that. Priority order is Branch,
+   Supervisor, Status and Actions, so the two counts go first.
+
+   Both rules stop above the card breakpoint, so the card layout still shows
+   every figure.
+
+   Hidden columns are not lost: the details are all on the card at phone
+   widths, and the counts stay visible on a desktop. */
+
+@media (max-width: 1150px) and (min-width: 641px) {
+  .table th:nth-child(4),
+  .table td:nth-child(4) {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) and (min-width: 641px) {
+  .table th:nth-child(3),
+  .table td:nth-child(3) {
+    display: none;
+  }
+}
+
+/* ---------- Skeleton ---------- */
+
+.skeletonCard {
+  height: 320px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- Phone: one card per branch ---------- */
+
+@media (max-width: 640px) {
+  .headActions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .scroll {
+    overflow-x: visible;
+    margin: 0;
+    padding: 0;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .table tbody tr:hover td {
+    background: none;
+  }
+
+  .table td {
+    padding: 0;
+    border: none;
+  }
+
+  .table td[data-label='Branch'] {
+    grid-column: 1;
+    font-size: 15px;
+  }
+
+  .table td[data-label='Status'] {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .table td[data-label='Supervisor'] {
+    grid-column: 1 / -1;
+    padding-top: 9px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Counts sit on one line, each labelled, rather than as bare numbers. */
+  .table td[data-label='Staff'],
+  .table td[data-label='Serialised units'] {
+    grid-column: auto;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .table td[data-label='Staff']::before,
+  .table td[data-label='Serialised units']::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .actionsCol {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard {
+    animation: none;
+  }
+
+  .primary,
+  .iconButton {
+    transition: none;
+  }
+}
+
+/* ---------- In-menu confirmation ----------
+
+   The second step replaces the menu's contents rather than opening a dialog,
+   so the choice stays where the click happened. */
+
+.confirm {
+  padding: 4px 5px 5px;
+  width: min(232px, calc(100vw - 56px));
+}
+
+.confirm p {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: normal;
+}
+
+.confirmRow {
+  display: flex;
+  gap: 7px;
+}
+
+.confirmGo,
+.confirmDanger,
+.confirmBack {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.confirmGo {
+  border: none;
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.confirmGo:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.confirmDanger {
+  border: none;
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirmDanger:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.confirmBack {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.confirmBack:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.confirmGo:disabled,
+.confirmDanger:disabled,
+.confirmBack:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A supervisor sees their branch but changes nothing here. */
+.readOnly {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}

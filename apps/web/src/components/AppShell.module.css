@@ -1,0 +1,659 @@
+.shell {
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  background: var(--page);
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  height: 100svh;
+}
+
+/* The brand is a link home. The extra bottom padding is what pushes the rule
+   below it — and with it the whole nav — down away from the title. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 6px 20px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  transition: background 0.14s ease;
+}
+
+.brand:hover {
+  background: var(--brand-subtle);
+}
+
+.brand:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 2px;
+}
+
+/* Lift the mark on hover so the block reads as one clickable object. */
+.brand > span:first-child {
+  transition: transform 0.14s ease;
+}
+
+.brand:hover > span:first-child {
+  transform: translateY(-1px) scale(1.04);
+}
+
+.brandName {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--display);
+  min-width: 0;
+}
+
+/* Sized for a short name on one line: the old size was set when the brand ran
+   to two lines of small type. Poppins rather than the display face, so the
+   wordmark carries the same weight as the page title beside it — at 700 the
+   display face reads lighter than it looks. */
+.brandTop {
+  color: var(--text);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(19px, 1.7vw, 23px);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  transition: color 0.14s ease;
+}
+
+.brand:hover .brandTop {
+  color: var(--brand-text);
+}
+
+.brandBottom {
+  color: var(--brand-text);
+  font-weight: 500;
+  font-size: clamp(10.5px, 0.92vw, 12px);
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  overflow-y: auto;
+  /* Space between the rule and Dashboard, so the nav sits lower. */
+  margin-top: 8px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sidebar-text);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.navItem:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
+/* The active item is a solid brand block, as in the design. */
+.navActive,
+.navActive:hover {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+/* ---------- Collapsible groups ---------- */
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* The parent link and its chevron share a row, but stay separate controls:
+   one navigates, the other only opens and closes. */
+.navParent {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 9px;
+}
+
+/* When the parent is the current page the row itself becomes the brand block,
+   so the chevron sits inside the highlight instead of beside it. */
+.navParentActive {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.navParentActive .navItem,
+.navParentActive .navItem:hover {
+  background: none;
+  color: var(--brand-ink);
+}
+
+.navParentActive .navToggle {
+  color: var(--brand-ink);
+}
+
+.navParentActive .navToggle:hover {
+  background: color-mix(in srgb, var(--brand-ink) 15%, transparent);
+  color: var(--brand-ink);
+}
+
+.navParent .navItem {
+  flex: 1;
+  min-width: 0;
+}
+
+.navToggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.navToggle:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
+.navToggle svg {
+  transition: transform 0.16s ease;
+}
+
+.navToggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.navChildren {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Lines up under the parent's label rather than its icon, so the group
+     reads as one block. */
+  margin-left: 21px;
+  padding-left: 11px;
+  border-left: 1px solid var(--sidebar-hover);
+}
+
+.navChild {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sidebar-text);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.navChild:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
+.sidebarFoot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.avatarSm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.who strong {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.who span {
+  font-size: 10.5px;
+  color: var(--sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logoutIcon {
+  background: none;
+  border: none;
+  color: var(--sidebar-text);
+  padding: 5px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.logoutIcon:hover {
+  background: var(--sidebar-hover);
+  color: var(--danger);
+}
+
+/* ---------- Main ---------- */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mobileHeader {
+  display: none;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 22px 26px 0;
+}
+
+.pageTitle {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.pageSub {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile {
+  position: relative;
+}
+
+.profileButton {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 9px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.profileButton:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.avatar {
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid color-mix(in srgb, var(--text) 20%, var(--border));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.profileName {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: min(214px, calc(100vw - 40px));
+  max-width: calc(100vw - 24px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+}
+
+.menuHead {
+  padding: 9px 10px 11px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menuHead strong {
+  font-size: 13.5px;
+}
+
+.menuHead span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.menuBranch {
+  margin-top: 4px;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 11px !important;
+  color: var(--text-2) !important;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: var(--text-2);
+  text-align: left;
+}
+
+.menuItem:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.content {
+  padding: 18px 26px 26px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Mobile ---------- */
+
+.tabbar,
+.sheet,
+.sheetScrim {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar,
+  .pageHeader {
+    display: none;
+  }
+
+  .mobileHeader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+    background: var(--brand);
+    border-bottom: 1px solid color-mix(in srgb, var(--brand-ink) 18%, transparent);
+    position: sticky;
+    top: 0;
+    z-index: 8;
+  }
+
+  .mobileBrand {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--display);
+  }
+
+  .mobileBrand .brandTop {
+    font-size: 19px;
+  }
+
+  /* The header now also carries three controls, so a long system name
+     truncates rather than pushing them off a narrow phone. */
+  .mobileBrand > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Language, theme and the bell: always in reach, as on desktop. On the lime
+     bar they carry no chrome of their own — a white pill each would read as
+     three buttons stuck on rather than part of the bar. */
+  .mobileActions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+
+    --toggle-bg: transparent;
+    --toggle-border: transparent;
+    --toggle-fg: var(--neutral-900);
+    --toggle-size: 38px;
+    --toggle-radius: 50%;
+  }
+
+  /* The bell is already bare; this only makes its ink match the other two. */
+  .mobileActions button {
+    color: var(--neutral-900);
+  }
+
+  /* The account sits at the end of the bar, so the menu it opens has the
+     screen's edge to hang from. */
+  .mobileProfile {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .avatarButton {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  /* Bare, like the bell and the toggles beside it: the plate and the ring
+     both belong to the desktop avatar, which carries initials. */
+  .mobileProfile .avatar {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    border-radius: 0;
+    color: var(--neutral-900);
+  }
+
+  /* The bell badge's ring matches whatever it sits on. */
+  .mobileHeader {
+    --bell-ring: var(--brand);
+  }
+
+  .content {
+    padding: 14px 14px calc(78px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .tabbar {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    background: var(--brand);
+    border-top: 1px solid color-mix(in srgb, var(--brand-ink) 18%, transparent);
+    padding: 5px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(4px, env(safe-area-inset-left, 0px));
+    padding-right: max(4px, env(safe-area-inset-right, 0px));
+  }
+
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 5px 2px;
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--neutral-900);
+    min-height: 50px;
+    /* Mobile browsers flash their own grey box over a tapped link. On a lime
+       bar that reads as a stray colour, so the bar paints its own states. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The bar stays one unbroken lime. The current tab is marked by weight
+     alone — a tile of any other colour showed up as a patch on the lime. */
+  .tabActive {
+    color: var(--neutral-900);
+    font-weight: 700;
+    background: none;
+  }
+
+  .sheetScrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 26;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 8px 10px calc(16px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+    /* A short phone cannot show thirteen rows at once: scroll the list rather
+       than pushing the top ones off the screen. */
+    max-height: 85dvh;
+    overflow-y: auto;
+  }
+
+  /* The way out stays in view while the rest scrolls under it. */
+  .sheetClose {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+  }
+
+  /* Grip and arrow together, spanning the sheet so the whole strip closes it. */
+  .sheetClose {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    padding: 4px 0 6px;
+    margin-bottom: 4px;
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .sheetClose:active {
+    color: var(--text);
+  }
+
+  .sheetGrip {
+    width: 38px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  .sheetItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 13px 12px;
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
+    font-size: 14.5px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .sheetItem:active {
+    background: var(--surface-2);
+  }
+}

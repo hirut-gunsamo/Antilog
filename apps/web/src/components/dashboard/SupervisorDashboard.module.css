@@ -1,0 +1,224 @@
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+
+/* Each item is something to go and decide, so each one is a link. */
+.todo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 11px;
+}
+
+.todoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+  transition: border-color 0.12s ease;
+}
+
+.todoItem:hover {
+  border-color: #0e7f97;
+}
+
+.todoItem strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0e7f97;
+}
+
+.todoItem em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  /* Both columns take the row's height, so their bottom edges line up. */
+  align-items: stretch;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The last card in a column takes up whatever height is left. Scoped to the
+   column so it outranks the card's own `height: 100%`. */
+.side > .grow {
+  flex: 1;
+  height: auto;
+}
+
+.viewAll {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.viewAll:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Team cash ---------- */
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 0 10px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 10px;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table td:first-child {
+  font-weight: 600;
+  white-space: normal;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table td[data-owing='true'] {
+  font-weight: 700;
+  color: var(--warning);
+}
+
+/* The collect button sits in the last column, only for people holding cash. */
+.collect {
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--brand-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.collect:hover {
+  background: var(--brand-subtle);
+  border-color: var(--brand);
+}
+
+/* ---------- Chart ---------- */
+
+.chartFooter {
+  display: flex;
+  gap: 24px;
+  margin-top: 12px;
+}
+
+.chartFooter div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chartFooter strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.chartFooter span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ---------- Low stock ---------- */
+
+.lowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lowList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.lowList li:last-child {
+  border-bottom: none;
+}
+
+.lowList strong {
+  font-weight: 700;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.lowList strong[data-out='true'] {
+  color: var(--danger);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1024px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

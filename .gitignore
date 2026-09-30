@@ -1,0 +1,18 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+coverage
+*.log
+apps/web/dev-dist
+uploads/
+
+# Prisma client is generated into the repo so the editor watches it; not committed
+packages/database/src/generated/
+
+# Subagent-driven development workspace (scratch, never committed)
+.superpowers/
+
+# Row backups written by prisma/clear-stock-units.ts
+packages/database/prisma/cleared-stock-units-*.json

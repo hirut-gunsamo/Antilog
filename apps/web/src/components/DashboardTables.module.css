@@ -1,0 +1,215 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  /* These three cards sit in a grid whose column width has nothing to do with
+     the viewport, so the rows respond to their own width rather than the
+     window's. Without this the @container rule below never matches. */
+  container-type: inline-size;
+}
+
+.list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.list li:last-child {
+  border-bottom: none;
+}
+
+/* The row itself is a link, so the whole strip is clickable and focusable
+   rather than just the words in it. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 8px;
+  margin: 0 -8px;
+  border-radius: 10px;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+
+.row:hover {
+  background: var(--surface-2);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: -2px;
+}
+
+.list li:first-child .row {
+  margin-top: -3px;
+}
+
+.list li:last-child .row {
+  margin-bottom: -3px;
+}
+
+.thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.brand {
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+}
+
+.info {
+  background: var(--info-subtle);
+  color: var(--info);
+}
+
+.success {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.grey {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.main strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.main > span {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.side strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.lowInk {
+  color: var(--warning) !important;
+}
+
+.outInk {
+  color: var(--danger) !important;
+}
+
+.sharePill,
+.badgeSuccess,
+.badgeWarning,
+.badgeDanger,
+.badgeNeutral {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.sharePill {
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+}
+
+.badgeSuccess {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.badgeWarning {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+.badgeDanger {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.badgeNeutral {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .badgeWarning {
+    color: var(--warning);
+  }
+}
+
+:root[data-theme='dark'] .badgeWarning {
+  color: var(--warning);
+}
+
+/* ---------- Narrow columns ----------
+
+   These three sit in a 3-up grid on a wide screen and full width on a phone,
+   so the squeeze is worst in between — a column roughly 260px across. Below
+   that the value and badge drop under the name instead of competing with it
+   for the same line. */
+
+@container (max-width: 260px) {
+  .row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .side {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding-left: 47px;
+    text-align: left;
+  }
+}
+
+@media (max-width: 420px) {
+  .row {
+    gap: 9px;
+    padding: 10px 6px;
+    margin: 0 -6px;
+  }
+
+  .thumb {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

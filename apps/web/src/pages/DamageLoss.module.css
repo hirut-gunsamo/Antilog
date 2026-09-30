@@ -1,0 +1,642 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1280px;
+}
+
+/* ---------- Page head ---------- */
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The shell's page header owns the title above 900px, so this duplicate only
+   shows where that header is hidden. */
+.mobileHeading {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobileHeading {
+    display: block;
+  }
+}
+
+.title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(19px, 2vw, 23px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* ---------- The four overview tiles ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 15px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--tile-line);
+  background: var(--tile-bg);
+  min-width: 0;
+}
+
+.tileIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--tile-ink);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.tileText {
+  display: block;
+  min-width: 0;
+}
+
+.tileLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.tileValue {
+  display: block;
+  margin-top: 1px;
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* A timestamp is much longer than a count, so it gets its own size rather
+   than forcing every tile down to fit it. */
+.tileValue[data-small] {
+  font-size: clamp(13px, 1.2vw, 15px);
+  font-weight: 650;
+}
+
+.tileNote {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.tile[data-tone='green'] {
+  --tile-bg: color-mix(in srgb, var(--brand) 13%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--brand) 38%, transparent);
+  --tile-ink: var(--brand-text);
+}
+
+.tile[data-tone='blue'] {
+  --tile-bg: color-mix(in srgb, var(--info) 11%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--info) 34%, transparent);
+  --tile-ink: #0e7f97;
+}
+
+.tile[data-tone='amber'] {
+  --tile-bg: color-mix(in srgb, var(--warning) 13%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--warning) 36%, transparent);
+  --tile-ink: #a87a00;
+}
+
+.tile[data-tone='red'] {
+  --tile-bg: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  --tile-line: color-mix(in srgb, var(--danger) 30%, transparent);
+  --tile-ink: #c92a33;
+}
+
+.tile[data-tone='purple'] {
+  --tile-bg: color-mix(in srgb, #8b5cf6 10%, var(--surface));
+  --tile-line: color-mix(in srgb, #8b5cf6 30%, transparent);
+  --tile-ink: #7c3aed;
+}
+
+/* ---------- Action row ---------- */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+
+.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.linkButton {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.dangerButton {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dangerButton:hover {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+}
+
+/* ---------- Two-column body ---------- */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ---------- Filters ---------- */
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 210px;
+  min-width: 0;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+
+.filters select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.reset {
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reset:hover {
+  border-color: var(--brand);
+  color: var(--brand-text);
+}
+
+/* ---------- Table ---------- */
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  padding: 0 10px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: top;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr[data-busy='true'] {
+  opacity: 0.55;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.actionsCol {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The reference carries a dot in the kind's colour, so damaged and lost are
+   distinguishable while scanning the column rather than reading each row. */
+.ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+
+.kindDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.kindDot[data-kind='DAMAGED'] {
+  background: var(--warning);
+}
+
+.kindDot[data-kind='LOST'] {
+  background: var(--danger);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.item em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.state {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.state[data-state='PENDING'] {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+  color: #a87a00;
+}
+
+.state[data-state='APPROVED'] {
+  background: color-mix(in srgb, var(--brand) 20%, var(--surface));
+  color: var(--brand-text);
+}
+
+.state[data-state='REJECTED'] {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+
+.kindTag {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.rowActions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.confirm {
+  padding: 5px 11px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.confirm:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.rejectButton {
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--danger);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rejectButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.confirm:disabled,
+.rejectButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.waiting {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ---------- Foot ---------- */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.showing {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.pager button {
+  width: 27px;
+  height: 27px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pager span {
+  padding: 0 7px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 860px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Tablet: the branch and who reported it are the first things to go — the
+   reference, item, value and status are what a review needs. */
+@media (max-width: 1024px) and (min-width: 721px) {
+  .table th:nth-child(4),
+  .table td:nth-child(4),
+  .table th:nth-child(7),
+  .table td:nth-child(7) {
+    display: none;
+  }
+}
+
+/* Phone: each report becomes a card. */
+@media (max-width: 720px) {
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table tr:last-child {
+    border-bottom: none;
+  }
+
+  .table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border: none;
+    text-align: right;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .item,
+  .ref {
+    align-items: flex-end;
+  }
+
+  .item em {
+    text-align: right;
+  }
+
+  .actionsCol {
+    justify-content: flex-end;
+    padding-top: 8px !important;
+  }
+
+  .rowActions {
+    flex: 1;
+  }
+
+  .confirm,
+  .rejectButton {
+    flex: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .headActions {
+    width: 100%;
+  }
+
+  .headActions > * {
+    flex: 1;
+  }
+}

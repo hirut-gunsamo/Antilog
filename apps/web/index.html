@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- ?v=… is a cache buster. Chrome and Safari keep the icon they saw when
+         the app was installed, so a new picture at the same URL is ignored.
+         Bump the number whenever the artwork changes. -->
+    <link rel="icon" type="image/png" href="/logo-mark.png?v=3" />
+    <!-- viewport-fit=cover lets the installed app run edge to edge; the
+         layout keeps clear of the notch with env(safe-area-inset-*). -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+
+    <!-- Installed app -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="AntiLog" />
+    <!-- "default" keeps the app below the status bar. "black-translucent"
+         draws underneath it, which hid the header behind the clock. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta
+      name="theme-color"
+      content="#98d83f"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#000000"
+      media="(prefers-color-scheme: dark)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Noto+Sans+Ethiopic:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <title>AntiLog</title>
+
+    <!--
+      Stamps the saved theme before the first paint. Without this the page
+      renders light, then flips once React mounts. Must stay in step with
+      src/lib/theme.ts, which owns the same key and values.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('sim.theme')
+          if (saved === 'light' || saved === 'dark') {
+            document.documentElement.dataset.theme = saved
+          }
+
+          // Same idea for language: set it before paint so the document is
+          // never briefly labelled as the wrong one.
+          var lang = localStorage.getItem('sim.lang')
+          if (lang === 'en' || lang === 'am') {
+            document.documentElement.lang = lang
+          }
+        } catch (error) {
+          /* Private windows and blocked site data both throw; system theme wins. */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

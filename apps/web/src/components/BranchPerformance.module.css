@@ -1,0 +1,349 @@
+/* A wide table needs its own scroll container so the page body never scrolls
+   sideways on a narrow screen. */
+.scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table {
+  width: 100%;
+  /* No min-width: columns are shed at narrow widths instead of forcing the
+     page to scroll sideways. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+/* Header and body share one padding so every heading sits exactly over its
+   column; only the vertical values differ. */
+.table th,
+.table td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding-top: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  /* Keeps the headings in view while a long branch list scrolls. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table td {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.table tbody tr {
+  transition: background 0.12s ease;
+}
+
+.table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid var(--border);
+  padding-top: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ---------- Rank ---------- */
+
+.rankCol {
+  width: 30px;
+  min-width: 30px;
+}
+
+.rank {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The leader gets the brand block, so the ordering reads at a glance. */
+.table tbody tr:first-child .rank {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.badge,
+.badgeWarn {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge {
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+}
+
+.badgeWarn {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+/* Numeric columns sit left, on the same line as their headings. Qualified
+   with the element so it outranks the `.table th` default. */
+.table th.num,
+.table td.num {
+  text-align: left;
+}
+
+.dim {
+  color: var(--muted);
+}
+
+.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Share column ---------- */
+
+.shareCol {
+  width: 170px;
+  min-width: 118px;
+}
+
+.shareWrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.shareTrack {
+  flex: 1;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.shareFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width 0.25s ease;
+}
+
+.sharePct {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  min-width: 30px;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shareFill,
+  .table tbody tr {
+    transition: none;
+  }
+}
+
+/* ---------- Tablet: shed the least-load-bearing columns ----------
+
+   Nine columns need roughly 1050px. Between the card breakpoint and a full
+   desktop the page has far less, so they go in order of how little they are
+   missed: Stock Value, then Sales Staff, then Items Sold and Stock Left.
+   Branch, Customers, Revenue and Share always survive.
+
+   Each rule stops above the card breakpoint, so the card layout still shows
+   every figure. */
+
+/* Same relief as the inventory table: the name column stops being nowrap so
+   it can give width back to the figures. */
+@media (max-width: 1280px) and (min-width: 821px) {
+  .table td[data-label='Branch'] {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 1280px) and (min-width: 821px) {
+  .table th:nth-child(7),
+  .table td:nth-child(7) {
+    display: none;
+  }
+}
+
+@media (max-width: 1120px) and (min-width: 821px) {
+  .table th:nth-child(3),
+  .table td:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) and (min-width: 821px) {
+  .table th:nth-child(5),
+  .table td:nth-child(5),
+  .table th:nth-child(6),
+  .table td:nth-child(6) {
+    display: none;
+  }
+}
+
+/* ---------- Narrow screens: one card per branch ----------
+
+   Below 820px eight numeric columns cannot fit, and a sideways scroll hides
+   half of them. Each row becomes a card instead, with the column heading
+   carried down as a label on each figure. */
+
+@media (max-width: 820px) {
+  .scroll {
+    overflow-x: visible;
+    margin: 0;
+    padding: 0;
+  }
+
+  .table,
+  .table tbody,
+  .table tfoot,
+  .table tr,
+  .table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody tr,
+  .table tfoot tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 10px 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .table tbody tr:hover td,
+  .table td,
+  .table tfoot td {
+    background: none;
+    border: none;
+    padding: 0;
+    white-space: normal;
+  }
+
+  /* Name spans the full card width and carries the rank inline. */
+  .table td[data-label='Branch'] {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+
+  .rankCol {
+    display: none;
+  }
+
+  /* Every figure prints its column heading above it. */
+  .table td[data-label]:not([data-label='Branch'])::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .table td[data-label]:not([data-label='Branch']) {
+    text-align: left;
+    font-size: 14px;
+  }
+
+  .table td[data-label='Share'] {
+    grid-column: 1 / -1;
+  }
+
+  .table tfoot tr {
+    border-color: var(--brand);
+    background: var(--brand-subtle);
+  }
+
+  .table tfoot td[data-label='Branch'] {
+    border-bottom-color: var(--brand);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .badgeWarn {
+    color: var(--warning);
+  }
+}
+
+:root[data-theme='dark'] .badgeWarn {
+  color: var(--warning);
+}

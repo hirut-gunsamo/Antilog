@@ -1,0 +1,242 @@
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+
+/* What the person still has to act on. Links, not cards, because every one
+   of them is something to go and do. */
+.todo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 11px;
+}
+
+.todoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--todo-line);
+  background: var(--todo-bg);
+  transition: border-color 0.12s ease;
+}
+
+.todoItem:hover {
+  border-color: var(--todo-ink);
+}
+
+.todoItem strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--todo-ink);
+}
+
+.todoItem em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.todoItem[data-tone='amber'] {
+  --todo-bg: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  --todo-line: color-mix(in srgb, var(--warning) 34%, transparent);
+  --todo-ink: #a87a00;
+}
+
+.todoItem[data-tone='blue'] {
+  --todo-bg: color-mix(in srgb, var(--info) 10%, var(--surface));
+  --todo-line: color-mix(in srgb, var(--info) 30%, transparent);
+  --todo-ink: #0e7f97;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.viewAll {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.viewAll:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Recent sales ---------- */
+
+.saleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.saleList li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.saleList li:last-child {
+  border-bottom: none;
+}
+
+.saleMain {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.saleMain strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.saleMain em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.saleState {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.saleState[data-state='DRAFT'] {
+  background: color-mix(in srgb, var(--warning) 15%, var(--surface));
+  color: #a87a00;
+}
+
+.saleState[data-state='SUBMITTED'] {
+  background: color-mix(in srgb, var(--info) 13%, var(--surface));
+  color: #0e7f97;
+}
+
+.saleState[data-state='APPROVED'] {
+  background: color-mix(in srgb, var(--brand) 20%, var(--surface));
+  color: var(--brand-text);
+}
+
+.saleState[data-state='REJECTED'] {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+
+.saleTotal {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+/* ---------- National ID today ---------- */
+
+.prints {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.prints > strong {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.prints > strong em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.prints > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.prints a {
+  margin-top: 7px;
+}
+
+/* ---------- Low stock ---------- */
+
+.lowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lowList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.lowList li:last-child {
+  border-bottom: none;
+}
+
+.lowList strong {
+  font-weight: 700;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.lowList strong[data-out='true'] {
+  color: var(--danger);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1024px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

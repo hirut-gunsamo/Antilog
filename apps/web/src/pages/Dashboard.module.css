@@ -1,0 +1,393 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1320px;
+}
+
+.mobileGreeting {
+  display: none;
+}
+
+/* ---------- Stat tiles ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+}
+
+/* ---------- Second row ---------- */
+
+/* ---------- Tables ---------- */
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+/* ---------- Two-column body ---------- */
+
+/* Two equal columns, both stretching to the taller card's height. */
+.split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* The design's right column: stock mix above recent activity. The last card
+   fills, so the column ends level with Sales Overview. */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Equal height comes from the Card's own `fill` prop, so the body element is
+   targeted by its real class rather than a fragile :last-child. */
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.select {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.iconButton {
+  width: 31px;
+  height: 31px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--brand-text);
+  border-color: color-mix(in srgb, var(--brand) 40%, var(--border));
+}
+
+.iconButton:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.viewAll {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.viewAll:hover {
+  text-decoration: underline;
+}
+
+/* The three figures under the sales chart */
+.chartFooter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
+}
+
+.chartFooter div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chartFooter strong {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chartFooter span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mobileSummary {
+  display: none;
+}
+
+/* Tones for the quick-action plates */
+.green {
+  background: #e6f6ec;
+  color: #0f8a3c;
+}
+.blue {
+  background: #e8f1fd;
+  color: #2a78d6;
+}
+.amber {
+  background: #fdf1e2;
+  color: #c2790f;
+}
+.violet {
+  background: #efeafc;
+  color: #6b4de6;
+}
+.grey {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .green {
+    background: #12241a;
+    color: #34c26a;
+  }
+  :root:not([data-theme='light']) .blue {
+    background: #111e2e;
+    color: #58a0f0;
+  }
+  :root:not([data-theme='light']) .amber {
+    background: #2a2012;
+    color: #e0a33c;
+  }
+  :root:not([data-theme='light']) .violet {
+    background: #1d1830;
+    color: #9b85f0;
+  }
+}
+
+:root[data-theme='dark'] .green {
+  background: #12241a;
+  color: #34c26a;
+}
+:root[data-theme='dark'] .blue {
+  background: #111e2e;
+  color: #58a0f0;
+}
+:root[data-theme='dark'] .amber {
+  background: #2a2012;
+  color: #e0a33c;
+}
+:root[data-theme='dark'] .violet {
+  background: #1d1830;
+  color: #9b85f0;
+}
+
+/* ---------- Quick actions (phones only) ---------- */
+
+.quick {
+  display: none;
+}
+
+/* ---------- Skeletons ---------- */
+
+.skeletonTile,
+.skeletonCard {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-2) 37%,
+    var(--surface) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+.skeletonTile {
+  height: 118px;
+}
+
+.skeletonCard {
+  height: 300px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonTile,
+  .skeletonCard {
+    animation: none;
+  }
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1240px) {
+  .tables {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .tables {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .mobileGreeting {
+    display: block;
+  }
+
+  .mobileGreeting h2 {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .mobileGreeting p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* On phones the chart collapses to a headline with a link through to the
+     full report, as in the design. */
+  .chartFooter {
+    display: none;
+  }
+
+  .mobileSummary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    color: var(--text-2);
+  }
+
+  .mobileSummary strong {
+    display: block;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--text);
+  }
+
+  .mobileSummary span {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .quick {
+    display: block;
+  }
+
+  /* The design's phone order: tiles, the sales strip, then quick actions,
+     with everything else after. .split steps aside so its two halves can be
+     placed around the quick actions. */
+  .page > * {
+    order: 4;
+  }
+
+  .mobileGreeting,
+  .tiles {
+    order: 0;
+  }
+
+  .split {
+    display: contents;
+  }
+
+  .salesCard {
+    order: 1;
+  }
+
+  .quick {
+    order: 2;
+  }
+
+  .side {
+    order: 3;
+  }
+
+  .quickTitle {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  .quickGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .quickItem {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 8px 11px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text);
+    text-align: center;
+    min-height: 82px;
+    justify-content: center;
+  }
+
+  .quickIcon {
+    width: 33px;
+    height: 33px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .quickGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

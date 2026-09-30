@@ -1,0 +1,116 @@
+/* A request's items by category, each with its own Approve and Reject. */
+
+.groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.groups li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.groups li:last-child {
+  border-bottom: 0;
+}
+
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.item {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.approve,
+.reject {
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.approve {
+  background: var(--success-subtle);
+  color: var(--success-text);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.approve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.reject {
+  background: var(--danger-subtle);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.reject:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.approve:disabled,
+.reject:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.state {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.state[data-state='APPROVED'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.state[data-state='PENDING'] {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+.state[data-state='REJECTED'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .actions {
+    flex: 1 0 100%;
+  }
+
+  .approve,
+  .reject {
+    flex: 1;
+    padding: 9px 10px;
+  }
+}

@@ -1,0 +1,1073 @@
+/* Shared shell for the inventory side panels: a right-hand drawer on a wide
+   screen, a bottom sheet on a phone. Both are the same markup. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.36);
+  display: flex;
+  justify-content: flex-end;
+  animation: fade 0.14s ease;
+}
+
+.panel {
+  width: min(460px, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-md);
+  animation: slide 0.18s ease;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(14px);
+    opacity: 0.6;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.head p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.head button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.head button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- Facts grid ---------- */
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px 14px;
+  margin: 0;
+}
+
+.facts div {
+  min-width: 0;
+}
+
+.facts dt {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.status[data-state='IN_STOCK'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='LOW_STOCK'] {
+  background: var(--warning-subtle);
+  color: #a87a00;
+}
+
+.status[data-state='OUT_OF_STOCK'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+/* ---------- Sections ---------- */
+
+.section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 9px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.section h3 span {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  letter-spacing: 0;
+}
+
+.none {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.units,
+.moves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.units li,
+.moves li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.units li span {
+  overflow-wrap: anywhere;
+}
+
+.units li em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.units li em[data-state='AVAILABLE'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.units li em[data-state='SOLD'] {
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+}
+
+.more {
+  justify-content: center;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.moveType {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.moveWhere {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.moveQty {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.moveWhen {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---------- Form ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.field > span em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  /* 16px stops iOS Safari zooming the page on focus. */
+  font-size: 16px;
+  outline: none;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 108px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  border-color: var(--brand-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.tally {
+  margin: -8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success-text);
+}
+
+.tally[data-bad] {
+  color: var(--danger);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.cancel,
+.submit {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.cancel:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.submit {
+  background: var(--brand);
+  color: var(--brand-ink);
+  border: none;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------- Phone: bottom sheet ---------- */
+
+@media (max-width: 640px) {
+  .scrim {
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .panel {
+    width: 100%;
+    height: auto;
+    max-height: 92svh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    animation: rise 0.18s ease;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  @keyframes rise {
+    from {
+      transform: translateY(18px);
+      opacity: 0.6;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .panel {
+    animation: none;
+  }
+}
+
+/* ---------- Edit / remove ---------- */
+
+.hint {
+  margin: -8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.warn {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.warn strong {
+  color: var(--text);
+}
+
+.blocked {
+  margin: 0;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  color: #a87a00;
+  background: var(--warning-subtle);
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, transparent);
+}
+
+.danger {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.danger:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Same dark-mode correction as the table: dark amber on a near-black tint is
+   unreadable, so the ink lightens instead. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .status[data-state='LOW_STOCK'],
+  :root:not([data-theme='light']) .blocked {
+    color: var(--warning);
+  }
+}
+
+:root[data-theme='dark'] .status[data-state='LOW_STOCK'],
+:root[data-theme='dark'] .blocked {
+  color: var(--warning);
+}
+
+/* A checkbox with a label and explanation beside it. */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  accent-color: var(--brand-text);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.check > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.check strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.check em {
+  font-style: normal;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---------- New sale ---------- */
+
+.saleLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.qtyField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qtyField span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.qtyField input {
+  width: 100%;
+  padding: 11px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+
+.removeLine {
+  width: 38px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.removeLine:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.lineWarn {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #a87a00;
+}
+
+.addLine {
+  align-self: flex-start;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--brand-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addLine:hover {
+  background: var(--brand-subtle);
+}
+
+/* Deletes the type chosen in the select beside it. */
+.deleteLine {
+  align-self: stretch;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deleteLine:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.deleteLine:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* A select with an "add a new one" shortcut beside it — the type picker. */
+.withAdd {
+  display: flex;
+  gap: 8px;
+}
+
+.withAdd select,
+.withAdd input {
+  flex: 1;
+  min-width: 0;
+}
+
+.withAdd .addLine {
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+/* ---------- Request grid: every item the branch sells, with a box ---------- */
+
+.gridGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--border);
+  /* The dialog body is a flex column: without this the groups are squeezed to
+     fit the sheet and `overflow: hidden` silently clips whole rows. The body
+     scrolls instead. */
+  flex-shrink: 0;
+}
+
+.gridHead {
+  margin: 0;
+  padding: 9px 12px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gridRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--surface);
+}
+
+.gridName {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.gridRow input {
+  /* Wide enough for four digits, which covers a day's vouchers. */
+  width: 86px;
+  flex-shrink: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  /* 16px stops iOS Safari zooming the page on focus. */
+  font-size: 16px;
+  text-align: right;
+  outline: none;
+}
+
+.gridRow input:focus-visible {
+  border-color: var(--brand-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.gridRow input:disabled {
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.gridRow input[data-bad] {
+  border-color: var(--danger);
+}
+
+/* The three delivery fields sit inside the grid group's frame. */
+.driverFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface);
+}
+
+/* ---------- Approve request: one row per requested line ---------- */
+
+.approveLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: end;
+  gap: 6px 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.approveProduct {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.approveProduct strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lineNote {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.approveShortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.approveShortcuts:empty {
+  display: none;
+}
+
+.saleTotal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 13px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.saleTotal strong {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.sub {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Sale statuses reuse the stock status pill. */
+.status[data-state='APPROVED'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+.status[data-state='SUBMITTED'] {
+  background: var(--info-subtle);
+  color: #0e7f97;
+}
+
+.status[data-state='DRAFT'] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.status[data-state='REJECTED'] {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .saleLine {
+    grid-template-columns: minmax(0, 1fr) 72px auto;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .lineWarn {
+    color: var(--warning);
+  }
+}
+
+:root[data-theme='dark'] .lineWarn {
+  color: var(--warning);
+}
+
+/* ---------- Receipts ---------- */
+
+.slipPreview {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.slipFrame {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.slipFrame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.slipFrame span {
+  display: block;
+  padding: 9px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+  border-top: 1px solid var(--border);
+}
+
+.slipLink {
+  display: inline-block;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-text);
+  background: var(--surface-2);
+}
+
+.status[data-state='VERIFIED'] {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+
+/* ---------- Damage / loss reporting ---------- */
+
+/* The two kinds sit side by side as cards rather than a select: which one it
+   is is the first thing the person knows, and it colours the whole report. */
+.kindRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.kindCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.kindCard strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.kindCard em {
+  font-style: normal;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.kindCard:hover {
+  border-color: var(--brand);
+}
+
+.kindOn[data-kind='damaged'] {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+}
+
+.kindOn[data-kind='damaged'] strong {
+  color: #a87a00;
+}
+
+.kindOn[data-kind='lost'] {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.kindOn[data-kind='lost'] strong {
+  color: var(--danger);
+}
+
+.unitSearch {
+  width: 100%;
+  padding: 8px 11px;
+  margin-bottom: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* Capped and scrollable: a branch can hold hundreds of SIMs, and the reason
+   box below has to stay reachable without a long scroll past them. */
+.unitPicker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.unitPicker li {
+  border-bottom: 1px solid var(--border);
+}
+
+.unitPicker li:last-child {
+  border-bottom: none;
+}
+
+.unitPicker label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.unitPicker label:hover {
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+}
+
+.unitPicker input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--brand);
+  flex-shrink: 0;
+}
+
+@media (max-width: 460px) {
+  .kindRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- National ID counts ---------- */
+
+/* The two counts are entered side by side so their relationship is visible;
+   they are never added into one box. */
+.countRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+
+@media (max-width: 420px) {
+  .countRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* One commission line: the item on top, then quantity, price, percent and
+   the amount it comes to. */
+.lineBox {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.lineGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lineGrid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lineGrid span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lineBox select,
+.lineGrid input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  /* 16px stops iOS Safari zooming the page on focus. */
+  font-size: 16px;
+  outline: none;
+}
+
+.lineBox select:focus-visible,
+.lineGrid input:focus-visible {
+  border-color: var(--brand-dark);
+}
+
+.lineGrid strong {
+  padding: 9px 0;
+  font-size: 13px;
+}
+
+@media (max-width: 420px) {
+  .lineGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
