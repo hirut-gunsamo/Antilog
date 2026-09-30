@@ -163,7 +163,7 @@ export default function Dashboard() {
           <p>{t('dash.todayNote')}</p>
         </div>
 
-        <SalesDashboard data={data} user={user} />
+        <SalesDashboard data={data} />
 
         <Toasts toasts={toasts} onDismiss={dismiss} />
       </div>

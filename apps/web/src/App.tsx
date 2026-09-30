@@ -106,6 +106,7 @@ export default function App() {
             <Route path="/sales" element={<Sales />} />
             <Route path="/requests" element={<Requests />} />
             <Route path="/requests/sales" element={<Requests key="SALES" scope="SALES" />} />
+            <Route path="/requests/supervisors" element={<Requests key="SUPERVISOR" scope="SUPERVISOR" />} />
             <Route path="/requests/mine" element={<Requests key="MINE" scope="MINE" />} />
             <Route path="/reports" element={<Reports />} />
           </Route>

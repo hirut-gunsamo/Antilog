@@ -112,6 +112,8 @@ export function readyToSend(request: StockRequest, userId: string | undefined) {
 /** One requested item and what became of it, for the requests report. */
 export type RequestItemRow = {
   key: string
+  /** The request's reference, so its lines read as one request. */
+  ref: string
   date: string
   branch: string
   requestedBy: string
@@ -156,6 +158,7 @@ export function requestItemRows(requests: StockRequest[]): RequestItemRow[] {
 
       rows.push({
         key: item.id,
+        ref: requestRef(request),
         date: request.createdAt,
         branch: request.requestedBy.branch?.name ?? '—',
         requestedBy: request.requestedBy.name,
@@ -174,6 +177,7 @@ export function requestItemRows(requests: StockRequest[]): RequestItemRow[] {
   return rows.sort(
     (a, b) =>
       +new Date(b.date) - +new Date(a.date) ||
+      a.ref.localeCompare(b.ref) ||
       a.category.localeCompare(b.category) ||
       a.product.localeCompare(b.product),
   )

@@ -6,7 +6,6 @@ import { count, currency, shortDate } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { saleRef, STATUS_KEY } from '../../lib/sales'
 import type {
-  CurrentUser,
   Dashboard,
   Holding,
   NationalIdSummary,
@@ -27,15 +26,9 @@ import styles from './SalesDashboard.module.css'
  *
  * Every figure here is about this person, not the branch — the API already
  * scopes sales and cash to the signed-in user, so "Today's Sales" means theirs.
- * The two exceptions are labelled as branch figures, because stock is shared.
+ * Low stock too: it lists the goods issued to them that are running low.
  */
-export function SalesDashboard({
-  data,
-  user,
-}: {
-  data: Dashboard
-  user: CurrentUser
-}) {
+export function SalesDashboard({ data }: { data: Dashboard }) {
   const t = useT()
 
   const [mySales, setMySales] = useState<Sale[] | null>(null)
@@ -173,12 +166,10 @@ export function SalesDashboard({
             )}
           </Card>
 
-          {/* Stock is the branch's, not this person's — labelled so. */}
+          {/* The goods issued to this person that are running low. */}
           <Card
             title={t('dash.lowStock')}
-            subtitle={
-              user.branch ? user.branch.name : t('dash.yourBranch')
-            }
+            subtitle={t('hold.mine')}
             action={
               <Link className={styles.viewAll} to="/inventory">
                 {t('common.viewAll')}

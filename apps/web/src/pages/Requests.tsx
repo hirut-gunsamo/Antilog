@@ -86,10 +86,15 @@ function isoDay(date: Date) {
 
 /**
  * A supervisor has two lists: what their salespeople asked them for
- * (scope SALES) and what they asked the Owner for (scope MINE). Everyone
- * else sees one list (ALL).
+ * (scope SALES) and what they asked the Owner for (scope MINE). The Owner
+ * has two as well: from salespeople (SALES) and from supervisors
+ * (SUPERVISOR). A salesperson sees one list (ALL).
  */
-export default function Requests({ scope = 'ALL' }: { scope?: 'ALL' | 'SALES' | 'MINE' }) {
+export default function Requests({
+  scope = 'ALL',
+}: {
+  scope?: 'ALL' | 'SALES' | 'MINE' | 'SUPERVISOR'
+}) {
   const { user } = useAuth()
 
   const [requests, setRequests] = useState<StockRequest[] | null>(null)
@@ -175,9 +180,11 @@ export default function Requests({ scope = 'ALL' }: { scope?: 'ALL' | 'SALES' | 
       (requests ?? []).filter((request) =>
         scope === 'SALES'
           ? request.requestedBy.role === 'SALES'
-          : scope === 'MINE'
-            ? request.requestedBy.id === user?.id
-            : true,
+          : scope === 'SUPERVISOR'
+            ? request.requestedBy.role === 'SUPERVISOR'
+            : scope === 'MINE'
+              ? request.requestedBy.id === user?.id
+              : true,
       ),
     [requests, scope, user?.id],
   )
@@ -422,7 +429,7 @@ export default function Requests({ scope = 'ALL' }: { scope?: 'ALL' | 'SALES' | 
 
   // A supervisor's requests are split in two; the plain link opens the
   // salespeople's list.
-  if (scope === 'ALL' && isSupervisor) {
+  if (scope === 'ALL' && (isSupervisor || isOwner)) {
     return <Navigate to="/requests/sales" replace />
   }
 
@@ -489,7 +496,15 @@ export default function Requests({ scope = 'ALL' }: { scope?: 'ALL' | 'SALES' | 
       <header className={styles.head}>
         <div className={styles.mobileHeading}>
           <h1 className={styles.title}>
-            {t(scope === 'SALES' ? 'req.titleSales' : scope === 'MINE' ? 'req.titleMine' : 'req.title')}
+            {t(
+              scope === 'SALES'
+                ? 'req.titleSales'
+                : scope === 'SUPERVISOR'
+                  ? 'req.titleSupervisor'
+                  : scope === 'MINE'
+                    ? 'req.titleMine'
+                    : 'req.title',
+            )}
           </h1>
           <p className={styles.subtitle}>
 {isSales ? t('req.noteSales') : t('req.note')}

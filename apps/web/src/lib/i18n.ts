@@ -699,6 +699,7 @@ export const en = {
 
   // Stock requests
   'req.titleSales': 'Sales Requests',
+  'req.titleSupervisor': 'Supervisor Requests',
   'req.titleMine': 'My Requests',
   'req.title': 'Stock Requests',
   'req.note': 'Restock requests from supervisors to the Owner.',
@@ -2466,6 +2467,7 @@ export const am: Record<TranslationKey, string> = {
     'ሽያጩ ውድቅ ተደርጎ ከምክንያትዎ ጋር ወደ ሻጩ ይመለሳል። ምንም ክምችት አይቀነስም።',
 
   'req.titleSales': 'የሻጮች ጥያቄዎች',
+  'req.titleSupervisor': 'የተቆጣጣሪዎች ጥያቄዎች',
   'req.titleMine': 'የእኔ ጥያቄዎች',
   'req.title': 'የክምችት ጥያቄዎች',
   'req.note': 'ከተቆጣጣሪዎች ወደ ባለቤቱ የሚቀርቡ የክምችት ጥያቄዎች።',

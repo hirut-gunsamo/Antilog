@@ -164,6 +164,8 @@ export default function Reports() {
   const [cash, setCash] = useState<CashPositionReport | null>(null)
   const [stock, setStock] = useState<InventoryReport | null>(null)
   const [requests, setRequests] = useState<StockRequest[]>([])
+  // Salespeople's requests and supervisors' requests are read apart.
+  const [requestsFrom, setRequestsFrom] = useState<'SALES' | 'SUPERVISOR'>('SALES')
   const [receipts, setReceipts] = useState<BankReceipt[]>([])
   const [transfers, setTransfers] = useState<TransferRow[]>([])
   const [branches, setBranches] = useState<BranchRow[]>([])
@@ -305,6 +307,9 @@ export default function Reports() {
     const toTime = to ? new Date(`${to}T23:59:59`).getTime() : null
 
     return requests.filter((request) => {
+      if (user?.role !== 'SALES' && request.requestedBy.role !== requestsFrom) {
+        return false
+      }
       if (branch !== 'ALL' && request.requestedBy.branch?.id !== branch) {
         return false
       }
@@ -313,7 +318,7 @@ export default function Reports() {
       if (toTime !== null && when > toTime) return false
       return true
     })
-  }, [requests, branch, from, to])
+  }, [requests, branch, from, to, requestsFrom, user?.role])
 
   // One row per requested item, with what was approved and rejected of it.
   const requestRows = useMemo(() => requestItemRows(scopedRequests), [scopedRequests])
@@ -459,7 +464,7 @@ export default function Reports() {
           ]
         : kind === 'requests'
         ? [
-            ['Date', 'Branch', 'Requested By', 'Type', 'Category', 'Item', 'Requested', 'Approved', 'Rejected', 'Result'].join(
+            ['Date', 'Request', 'Branch', 'Requested By', 'Type', 'Category', 'Item', 'Requested', 'Approved', 'Rejected', 'Result'].join(
               ',',
             ),
             ...requestRows
@@ -467,6 +472,7 @@ export default function Reports() {
               .map((row) =>
               [
                 new Date(row.date).toISOString().slice(0, 10),
+                row.ref,
                 row.branch,
                 row.requestedBy,
                 kindName(row),
@@ -1071,6 +1077,34 @@ export default function Reports() {
 
       {tab === 'REQUESTS' ? (
         <>
+        {user?.role !== 'SALES' ? (
+          <div className={styles.tabs} role="tablist">
+            <div className={styles.tabList}>
+              {(['SALES', 'SUPERVISOR'] as const).map((from) => (
+                <button
+                  key={from}
+                  className={
+                    requestsFrom === from
+                      ? `${styles.tab} ${styles.tabActive}`
+                      : styles.tab
+                  }
+                  type="button"
+                  role="tab"
+                  aria-selected={requestsFrom === from}
+                  onClick={() => setRequestsFrom(from)}
+                >
+                  {t(
+                    from === 'SALES'
+                      ? 'req.titleSales'
+                      : user?.role === 'SUPERVISOR'
+                        ? 'req.titleMine'
+                        : 'req.titleSupervisor',
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <Card
           title={t("rep.stockRequests")}
           subtitle={t("rep.requestsNote")}
@@ -1083,6 +1117,7 @@ export default function Reports() {
                 <thead>
                   <tr>
                     <th scope="col">{t('req.date')}</th>
+                    <th scope="col">{t('req.requestId')}</th>
                     <th scope="col">{t('common.branch')}</th>
                     <th scope="col">{t('req.requestedBy')}</th>
                     <th scope="col">{t('appr.type')}</th>
@@ -1098,6 +1133,7 @@ export default function Reports() {
                   {requestRows.map((row) => (
                     <tr key={row.key}>
                       <td data-label={t('req.date')}>{shortDate(row.date)}</td>
+                      <td data-label={t('req.requestId')} className="tabular">{row.ref}</td>
                       <td data-label={t('common.branch')}>{row.branch}</td>
                       <td data-label={t('req.requestedBy')}>{row.requestedBy}</td>
                       <td data-label={t('appr.type')}>{kindName(row)}</td>
@@ -1122,7 +1158,7 @@ export default function Reports() {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td data-label={t('common.branch')} colSpan={6}>{t('rep.totalRow')}</td>
+                    <td data-label={t('common.branch')} colSpan={7}>{t('rep.totalRow')}</td>
                     <td data-label={t('rep.reqRequested')} className="tabular">
                       {count(requestTotals.requested)}
                     </td>

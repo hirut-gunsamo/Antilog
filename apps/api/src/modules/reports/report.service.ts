@@ -722,24 +722,43 @@ export async function getInventoryReport(
   const branchId =
     viewer.role === "OWNER" ? query.branchId : viewer.branchId;
 
-  const balances = await prisma.inventoryBalance.findMany({
-    where: branchId ? { locationId: branchId } : {},
-    select: {
-      quantity: true,
-      product: {
-        select: {
-          id: true,
-          sku: true,
-          name: true,
-          category: true,
-          price: true,
-          productCategory: { select: { name: true } },
-        },
-      },
-      location: { select: { id: true, name: true } },
-    },
-    orderBy: [{ location: { name: "asc" } }],
-  });
+  const productSelect = {
+    id: true,
+    sku: true,
+    name: true,
+    category: true,
+    price: true,
+    productCategory: { select: { name: true } },
+  } as const;
+
+  // A salesperson's stock is what they hold, not the branch's shelf.
+  const balances =
+    viewer.role === "SALES"
+      ? await (async () => {
+          const [holdings, location] = await Promise.all([
+            prisma.salespersonHolding.findMany({
+              where: { userId: viewer.userId, quantity: { gt: 0 } },
+              select: { quantity: true, product: { select: productSelect } },
+            }),
+            branchId
+              ? prisma.stockLocation.findUnique({
+                  where: { id: branchId },
+                  select: { id: true, name: true },
+                })
+              : null,
+          ]);
+          const own = location ?? { id: viewer.userId, name: "" };
+          return holdings.map((holding) => ({ ...holding, location: own }));
+        })()
+      : await prisma.inventoryBalance.findMany({
+          where: branchId ? { locationId: branchId } : {},
+          select: {
+            quantity: true,
+            product: { select: productSelect },
+            location: { select: { id: true, name: true } },
+          },
+          orderBy: [{ location: { name: "asc" } }],
+        });
 
   const branches = new Map<
     string,
@@ -1012,6 +1031,9 @@ export async function getRecentActivity(viewer: Viewer) {
   } as const;
 
   function movements(types: StockMovementType[]) {
+    // Branch stock movements are not a salesperson's to read.
+    if (viewer.role === "SALES") return Promise.resolve([]);
+
     return prisma.stockMovement.findMany({
       where: { type: { in: types }, ...touchesBranch },
       select: movementSelect,
@@ -1045,7 +1067,12 @@ export async function getRecentActivity(viewer: Viewer) {
       movements(["ADJUSTMENT"]),
       movements(["STOCK_OUT", "RETURN"]),
       prisma.stockRequest.findMany({
-        where: branchId ? { requestedBy: { branchId } } : {},
+        where:
+          viewer.role === "SALES"
+            ? { requestedById: viewer.userId }
+            : branchId
+              ? { requestedBy: { branchId } }
+              : {},
         select: {
           id: true,
           status: true,
@@ -1205,16 +1232,29 @@ export async function getLowStock(viewer: Viewer, limit = 5) {
   const branchId =
     viewer.role === "OWNER" ? undefined : viewer.branchId ?? "__none__";
 
-  const balances = await prisma.inventoryBalance.findMany({
-    where: branchId ? { locationId: branchId } : {},
-    select: {
-      quantity: true,
-      product: {
-        select: { id: true, sku: true, name: true, category: true },
-      },
-      location: { select: { id: true, name: true } },
-    },
-  });
+  const productSelect = { id: true, sku: true, name: true, category: true } as const;
+
+  // A salesperson is warned about the goods issued to them running low; the
+  // branch's shelf is the supervisor's to watch.
+  const balances =
+    viewer.role === "SALES"
+      ? (
+          await prisma.salespersonHolding.findMany({
+            where: { userId: viewer.userId },
+            select: { quantity: true, product: { select: productSelect } },
+          })
+        ).map((holding) => ({
+          ...holding,
+          location: { id: viewer.userId, name: "" },
+        }))
+      : await prisma.inventoryBalance.findMany({
+          where: branchId ? { locationId: branchId } : {},
+          select: {
+            quantity: true,
+            product: { select: productSelect },
+            location: { select: { id: true, name: true } },
+          },
+        });
 
   const threshold: Record<string, number> = {
     SIM_CARD: 10,

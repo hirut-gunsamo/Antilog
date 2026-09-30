@@ -108,8 +108,10 @@ const NAV: NavItem[] = [
     roles: ['OWNER', 'SUPERVISOR', 'SALES'],
     primary: true,
     // A supervisor's two lists: from their salespeople, and to the Owner.
+    // The Owner's two: from salespeople, and from supervisors.
     children: [
-      { to: '/requests/sales', labelKey: 'req.titleSales', icon: 'users', roles: ['SUPERVISOR'] },
+      { to: '/requests/sales', labelKey: 'req.titleSales', icon: 'users', roles: ['OWNER', 'SUPERVISOR'] },
+      { to: '/requests/supervisors', labelKey: 'req.titleSupervisor', icon: 'clipboard', roles: ['OWNER'] },
       { to: '/requests/mine', labelKey: 'req.titleMine', icon: 'clipboard', roles: ['SUPERVISOR'] },
     ],
   },

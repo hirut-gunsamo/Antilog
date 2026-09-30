@@ -145,32 +145,48 @@ export async function createRequest(
 
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, status: "ACTIVE" },
-    select: { id: true },
+    select: { id: true, category: true, categoryId: true },
   });
 
   if (products.length !== new Set(productIds).size) {
     throw new Error("INVALID_PRODUCT");
   }
 
-  const request = await prisma.stockRequest.create({
-    data: {
-      kind,
-      requestedById: viewer.userId,
-      requestedToId: addressee.id,
-      status: "PENDING",
-      notes: data.notes ?? null,
+  // Each category arrives as a request of its own, so SIM cards, airtime and
+  // phones are listed and decided separately. Grouped the same way the
+  // approval screen groups them: the Owner's category, else the product kind.
+  const categoryOf = new Map(
+    products.map((product) => [product.id, product.categoryId ?? product.category]),
+  );
+  const groups = new Map<string, CreateRequestInput["items"]>();
+  for (const item of data.items) {
+    const key = categoryOf.get(item.productId)!;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
 
-      items: {
-        create: data.items.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-        })),
-      },
-    },
-    select: requestDetail,
-  });
+  const requests = await prisma.$transaction(
+    [...groups.values()].map((items) =>
+      prisma.stockRequest.create({
+        data: {
+          kind,
+          requestedById: viewer.userId,
+          requestedToId: addressee.id,
+          status: "PENDING",
+          notes: data.notes ?? null,
 
-  return request;
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          },
+        },
+        select: requestDetail,
+      }),
+    ),
+  );
+
+  return requests;
 }
 
 // The Owner sees every request. A supervisor sees only the requests raised

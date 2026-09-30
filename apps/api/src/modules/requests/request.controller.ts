@@ -214,11 +214,13 @@ export async function createRequestController(
   if (!viewer) return reply;
 
   try {
+    // One request per category.
     const created = await createRequest(result.data, viewer);
 
     return reply.status(201).send({
       message: "Restock request submitted",
-      request: created,
+      request: created[0],
+      requests: created,
     });
   } catch (error) {
     return (
