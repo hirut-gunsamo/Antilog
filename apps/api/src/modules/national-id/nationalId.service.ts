@@ -3,6 +3,7 @@ import { Prisma } from "database";
 import { prisma } from "../../plugins/prisma.js";
 import type { Viewer } from "../../middleware/auth.js";
 import { getSettings } from "../settings/settings.service.js";
+import { nidPricesFor } from "../nid-orders/nidPrice.js";
 import type {
   CreateRecordInput,
   ListRecordsQuery,
@@ -131,10 +132,10 @@ export async function createRecord(data: CreateRecordInput, viewer: Viewer) {
 
   await assertEnoughBlanks(locationId, data.originalCount, data.copyCount);
 
-  const settings = await getSettings();
-
-  const originalRate = new Prisma.Decimal(settings.nationalIdOriginalRate);
-  const copyRate = new Prisma.Decimal(settings.nationalIdCopyRate);
+  // The branch's own prices if the Owner set them, else the default.
+  const prices = await nidPricesFor(locationId);
+  const originalRate = prices.ORIGINAL;
+  const copyRate = prices.COPY;
 
   const revenue = originalRate
     .mul(data.originalCount)
@@ -504,6 +505,24 @@ export async function receiveBlanks(
 }
 
 /** The arrivals log, newest first. */
+/** The Owner corrects an arrival of blanks typed wrong. */
+export async function updateBlanks(
+  id: string,
+  data: { originalAdded: number; copyAdded: number; note?: string },
+) {
+  const { count } = await prisma.nationalIdStockEntry.updateMany({
+    where: { id },
+    data: { originalAdded: data.originalAdded, copyAdded: data.copyAdded, note: data.note || null },
+  });
+  if (count === 0) throw new Error("NOT_FOUND");
+}
+
+/** The Owner removes an arrival recorded by mistake. */
+export async function deleteBlanks(id: string) {
+  const { count } = await prisma.nationalIdStockEntry.deleteMany({ where: { id } });
+  if (count === 0) throw new Error("NOT_FOUND");
+}
+
 export async function getBlankEntries(viewer: Viewer, locationId?: string) {
   return prisma.nationalIdStockEntry.findMany({
     where: branchScope(viewer, locationId),

@@ -74,7 +74,7 @@ export function DeleteRowDialog({
           <div>
             <h2>{t('dlg.removeRow')}</h2>
             <p className="tabular">
-              {balance.product.sku} · {balance.location.name}
+              {balance.location.name}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label={t('common.close')}>

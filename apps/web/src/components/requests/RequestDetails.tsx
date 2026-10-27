@@ -7,28 +7,28 @@ import { count, shortDate } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import {
   REQUEST_STATUS_KEY,
-  TRANSFER_STATUS_KEY,
   approvedUnitCount,
   requestRef,
   requestRoute,
   requestUnitCount,
 } from '../../lib/requests'
 import type { StockRequest } from '../../lib/types'
-import { CategoryDecisions } from './CategoryDecisions'
+import { requestStage } from '../../lib/requests'
 import styles from '../inventory/Panel.module.css'
 
 export function RequestDetails({
   request,
   onClose,
   onReceived,
-  onDecided,
-  onError,
+  onDispatch,
 }: {
   request: StockRequest
   onClose: () => void
   /** Called after the branch confirms the delivery arrived. */
   onReceived?: () => void
-  /** Given where the request can be decided: items then show by category. */
+  /** The Owner's Approve & send for a supervisor's restock, from here. */
+  onDispatch?: () => void
+  /** No longer used: items are approved whole, from one page. */
   onDecided?: (updated: StockRequest, message: string) => void
   onError?: (message: string) => void
 }) {
@@ -93,8 +93,11 @@ export function RequestDetails({
             <div>
               <dt>{t('det.status')}</dt>
               <dd>
-                <span className={styles.status} data-state={request.status}>
-                  {t(REQUEST_STATUS_KEY[request.status])}
+                <span
+                  className={styles.status}
+                  data-state={requestStage(request) === 'WAITING_TO_SEND' ? 'APPROVED' : request.status}
+                >
+                  {t(REQUEST_STATUS_KEY[requestStage(request) === 'WAITING_TO_SEND' ? 'APPROVED' : request.status])}
                 </span>
               </dd>
             </div>
@@ -132,19 +135,16 @@ export function RequestDetails({
               <span>{request.items.length}</span>
             </h3>
 
-            {onDecided ? (
-              <CategoryDecisions
-                request={request}
-                onDecided={onDecided}
-                onError={onError ?? (() => undefined)}
-              />
-            ) : (
             <ul className={styles.moves}>
               {request.items.map((item) => (
                 <li key={item.id}>
                   <span className={styles.moveWhere}>
                     {item.product.name}
-                    <em className={styles.sub}>{item.product.sku}</em>
+                    <em className={styles.sub}>
+                      {item.iccidFrom
+                        ? t('iccid.range', { from: item.iccidFrom, to: item.iccidTo ?? '' })
+                        : item.product.sku}
+                    </em>
                   </span>
                   <span className={`${styles.moveQty} tabular`}>
                     {item.approvedQuantity === null ||
@@ -160,40 +160,13 @@ export function RequestDetails({
                 </li>
               ))}
             </ul>
-            )}
           </section>
 
-          <section className={styles.section}>
-            <h3>{t('det.progress')}</h3>
-
-            {request.status === 'REJECTED' && request.rejectionReason ? (
+          {request.status === 'REJECTED' && request.rejectionReason ? (
+            <section className={styles.section}>
               <p className={styles.blocked}>{request.rejectionReason}</p>
-            ) : request.transfer ? (
-              <p className={styles.none}>
-                {t('det.transferProgress', {
-                  who: request.approvedBy?.name ?? t('det.theOwner'),
-                  status: t(
-                    TRANSFER_STATUS_KEY[request.transfer.status] ??
-                      'det.transferPending',
-                  ),
-                  from:
-                    request.transfer.fromLocation?.name ?? t('done.sourceBranch'),
-                  to: request.transfer.toLocation?.name ?? t('det.thisBranch'),
-                })}
-              </p>
-            ) : request.reviewedAt ? (
-              <p className={styles.none}>
-                {request.approvedBy
-                  ? t('det.reviewedOnBy', {
-                      when: shortDate(request.reviewedAt),
-                      name: request.approvedBy.name,
-                    })
-                  : t('det.reviewedOn', { when: shortDate(request.reviewedAt) })}
-              </p>
-            ) : (
-              <p className={styles.none}>{t('det.waitingOwner')}</p>
-            )}
-          </section>
+            </section>
+          ) : null}
 
           {request.transfer?.driverName ? (
             <section className={styles.section}>
@@ -205,6 +178,15 @@ export function RequestDetails({
                   plate: request.transfer.vehiclePlate ?? '—',
                 })}
               </p>
+            </section>
+          ) : null}
+
+          {/* The Owner approves and sends from here, one page. */}
+          {onDispatch ? (
+            <section className={styles.section}>
+              <button type="button" className={styles.submit} onClick={onDispatch}>
+                {t(requestStage(request) === 'WAITING_TO_SEND' ? 'appr.send' : 'dispatch.open')}
+              </button>
             </section>
           ) : null}
 
@@ -223,12 +205,6 @@ export function RequestDetails({
             </section>
           ) : null}
 
-          {request.notes ? (
-            <section className={styles.section}>
-              <h3>{t('det.note')}</h3>
-              <p className={styles.none}>{request.notes}</p>
-            </section>
-          ) : null}
         </div>
       </aside>
     </div>

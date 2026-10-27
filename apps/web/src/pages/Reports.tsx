@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
+import { businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
 import { ItemBreakdown, type ItemRow } from '../components/reports/ItemBreakdown'
+import { BankReportCard } from '../components/reports/BankReportCard'
+import { EditRequestsCard } from '../components/reports/EditRequestsCard'
+import { PersonReport } from '../components/reports/PersonReport'
+import { SalesDaysReport } from '../components/reports/SalesDaysReport'
+import { SalesTotals } from '../components/reports/SalesTotals'
 import { TransferReport } from '../components/reports/TransferReport'
-import { BarList, ColumnChart } from '../components/charts/Charts'
-import { Donut } from '../components/charts/Donut'
 import { DownloadButton } from '../components/DownloadButton'
 import { icons } from '../components/icons'
 import { Toasts } from '../components/Toasts'
 import { api, downloadCsv } from '../lib/api'
+import { downloadSalesDays } from '../lib/salesDaysCsv'
 import {
-  CATEGORY_COLORS,
   CATEGORY_KEY,
   CATEGORY_ORDER,
   count,
@@ -26,6 +31,7 @@ import type {
   BankReceipt,
   BranchRow,
   CashPositionReport,
+  ExpenseReport,
   InventoryReport,
   ReportPeriod,
   SalesReport,
@@ -42,6 +48,7 @@ const TABS = [
   { value: 'RECEIPTS', labelKey: 'rep.tabReceipts' },
   { value: 'NATIONAL_ID', labelKey: 'rep.tabNationalId' },
   { value: 'TRANSFERS', labelKey: 'rep.tabTransfers' },
+  { value: 'EXPENSES', labelKey: 'rep.tabExpenses' },
 ] as const satisfies readonly { value: string; labelKey: TranslationKey }[]
 
 type TabValue = (typeof TABS)[number]['value']
@@ -112,6 +119,14 @@ function rangeDates(
   return { from: isoDay(start), to: isoDay(end) }
 }
 
+function periodForRange(value: (typeof QUICK_RANGES)[number]['value']): ReportPeriod | null {
+  if (value === 'today' || value === 'yesterday') return 'daily'
+  if (value === 'week' || value === 'lastWeek') return 'weekly'
+  if (value === 'month' || value === 'lastMonth') return 'monthly'
+  if (value === 'year' || value === 'lastYear') return 'yearly'
+  return null
+}
+
 const PERIODS: { value: ReportPeriod; labelKey: TranslationKey }[] = [
   { value: 'daily', labelKey: 'rep.daily' },
   { value: 'weekly', labelKey: 'rep.weekly' },
@@ -140,7 +155,7 @@ function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 const todayIso = () => isoDay(new Date())
@@ -148,9 +163,6 @@ const monthStart = () => {
   const now = new Date()
   return isoDay(new Date(now.getFullYear(), now.getMonth(), 1))
 }
-
-// Airtime first in the daily table: it is most of what a branch sells.
-const DAILY_ORDER = ['AIRTIME_VOUCHER', 'PHONE', 'SIM_CARD'] as const
 
 export default function Reports() {
   const { user } = useAuth()
@@ -168,6 +180,7 @@ export default function Reports() {
   const [requestsFrom, setRequestsFrom] = useState<'SALES' | 'SUPERVISOR'>('SALES')
   const [receipts, setReceipts] = useState<BankReceipt[]>([])
   const [transfers, setTransfers] = useState<TransferRow[]>([])
+  const [expenses, setExpenses] = useState<ExpenseReport | null>(null)
   const [branches, setBranches] = useState<BranchRow[]>([])
   const [nationalId, setNationalId] = useState<NationalIdSummary | null>(
     null,
@@ -176,15 +189,25 @@ export default function Reports() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [tab, setTab] = useState<TabValue>('SALES')
+  // A salesperson has no transfers or expenses.
+  const visibleTabs = TABS.filter(
+    (option) =>
+      !((option.value === 'TRANSFERS' || option.value === 'EXPENSES') && user?.role === 'SALES'),
+  )
+  const [tab, setTab] = useState<TabValue>(() => visibleTabs[0].value)
+  // The Owner's reports open on their totals, the rows behind them on
+  // request; supervisors and salespeople always see everything.
+  const isOwner = user?.role === 'OWNER'
+  const [detailOpen, setDetail] = useState(false)
+  const detail = !isOwner || detailOpen
   const [quickRange, setQuickRange] =
     useState<(typeof QUICK_RANGES)[number]['value']>('today')
   const [period, setPeriod] = useState<ReportPeriod>('daily')
   const [branch, setBranch] = useState('ALL')
   // This month by default, so the dates show what the page is reporting on
   // instead of sitting blank (which meant "all time").
-  const [from, setFrom] = useState(() => monthStart())
-  const [to, setTo] = useState(() => todayIso())
+  const [from, setFrom] = useSavedState('reports:from', () => monthStart())
+  const [to, setTo] = useSavedState('reports:to', () => todayIso())
 
   // Filters only take effect on Apply: each change would otherwise refetch
   // three reports, and a date range is half-typed most of the time.
@@ -202,6 +225,23 @@ export default function Reports() {
       .catch(() => undefined)
     return () => controller.abort()
   }, [applied, user?.role])
+
+  // Expenses are recorded by supervisors and read by the Owner; the server
+  // narrows a supervisor to their own branch.
+  useEffect(() => {
+    if (user?.role === 'SALES') return
+    const controller = new AbortController()
+    const query = new URLSearchParams()
+    if (from) query.set('from', from)
+    if (to) query.set('to', to)
+    if (branch !== 'ALL') query.set('branchId', branch)
+    api<ExpenseReport>(`/api/expenses?${query.toString()}`, { signal: controller.signal })
+      .then(setExpenses)
+      .catch(() => {
+        if (!controller.signal.aborted) setExpenses(null)
+      })
+    return () => controller.abort()
+  }, [applied, from, to, branch, user?.role])
 
   // Completed transfers in the chosen dates, touching the chosen branch.
   const scopedTransfers = useMemo(() => {
@@ -374,15 +414,6 @@ export default function Reports() {
     })
   }, [receipts, branch, from, to])
 
-  const itemsSold = useMemo(
-    () =>
-      Object.values(sales?.summary.byCategory ?? {}).reduce(
-        (total, entry) => total + entry.quantity,
-        0,
-      ),
-    [sales],
-  )
-
   const bankedTotal = useMemo(
     () =>
       scopedReceipts
@@ -424,7 +455,7 @@ export default function Reports() {
 
   /** Requests and receipts have no server report, so the CSV is built here. */
   function downloadLocalCsv(
-    kind: 'requests' | 'receipts' | 'transfers',
+    kind: 'requests' | 'receipts' | 'transfers' | 'expenses',
     window?: { from: string; to: string },
   ) {
     const name = `${kind}-report-${isoDay(new Date())}.csv`
@@ -441,7 +472,25 @@ export default function Reports() {
       /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 
     const lines =
-      kind === 'transfers'
+      kind === 'expenses'
+        ? [
+            ['Date', 'Branch', 'Reason', 'Amount', 'Note', 'Recorded by'].join(','),
+            ...(expenses?.expenses ?? [])
+              .filter((row) => within(row.expenseDate))
+              .map((row) =>
+                [
+                  row.expenseDate.slice(0, 10),
+                  row.branch.name,
+                  row.reason,
+                  String(Number(row.amount)),
+                  row.note ?? '',
+                  row.recordedBy.name,
+                ]
+                  .map(escape)
+                  .join(','),
+              ),
+          ]
+        : kind === 'transfers'
         ? [
             ['Received', 'Sent', 'From', 'To', 'Items', 'Units', 'Driver', 'Plate', 'Received by'].join(','),
             ...scopedTransfers
@@ -531,14 +580,29 @@ export default function Reports() {
             ? `requests-report-${isoDay(new Date())}.csv`
             : tab === 'TRANSFERS'
               ? `transfers-report-${isoDay(new Date())}.csv`
-              : `receipts-report-${isoDay(new Date())}.csv`
+              : tab === 'EXPENSES'
+                ? `expenses-report-${isoDay(new Date())}.csv`
+                : `receipts-report-${isoDay(new Date())}.csv`
 
   function exportCurrent(window?: { from: string; to: string }) {
-    if (tab === 'SALES') return downloadServerCsv('sales', window)
+    // The sales report downloads as it reads on screen: by branch, a line
+    // per salesperson per day, with each branch's daily total.
+    if (tab === 'SALES') {
+      const name = `sales-report-${isoDay(new Date())}.csv`
+      return downloadSalesDays(window?.from ?? from, window?.to ?? to, branch, name)
+        .then(() => push('success', t('toast.savedToDownloads', { name })))
+        .catch(() => push('error', t('dash.downloadFailed')))
+    }
     if (tab === 'INVENTORY') return downloadServerCsv('inventory', window)
     if (tab === 'CASH') return downloadServerCsv('cash-position', window)
     return downloadLocalCsv(
-      tab === 'REQUESTS' ? 'requests' : tab === 'TRANSFERS' ? 'transfers' : 'receipts',
+      tab === 'REQUESTS'
+        ? 'requests'
+        : tab === 'TRANSFERS'
+          ? 'transfers'
+          : tab === 'EXPENSES'
+            ? 'expenses'
+            : 'receipts',
       window,
     )
   }
@@ -552,44 +616,6 @@ export default function Reports() {
       </div>
     )
   }
-
-  const tiles = [
-    {
-      key: 'sales',
-      tone: 'green',
-      icon: 'chart' as const,
-      label: t('rep.totalSales'),
-      value: currency(sales?.summary.revenue ?? 0),
-    },
-    {
-      key: 'items',
-      tone: 'blue',
-      icon: 'cart' as const,
-      label: t('rep.itemsSold'),
-      value: count(itemsSold),
-    },
-    {
-      key: 'requests',
-      tone: 'amber',
-      icon: 'box' as const,
-      label: t('rep.stockRequests'),
-      value: count(scopedRequests.length),
-    },
-    {
-      key: 'banked',
-      tone: 'red',
-      icon: 'receipt' as const,
-      label: t('rep.bankDeposits'),
-      value: currency(bankedTotal),
-    },
-  ]
-
-  const categorySlices = CATEGORY_ORDER.map((key) => ({
-    key,
-    label: CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key,
-    value: sales?.summary.byCategory?.[key]?.revenue ?? 0,
-    color: CATEGORY_COLORS[key] ?? 'var(--series-1)',
-  })).filter((slice) => slice.value > 0)
 
   return (
     <div className={styles.page}>
@@ -614,6 +640,35 @@ export default function Reports() {
         </div>
       </header>
 
+      {/* Days salespeople asked to correct, waiting for the Owner: first,
+          since they need an answer today. */}
+      {user?.role === 'OWNER' ? <EditRequestsCard onMessage={push} /> : null}
+
+      {/* Which report first, then its dates. */}
+      <div className={styles.tabs} role="tablist">
+        <div className={styles.tabList}>
+          {visibleTabs.map((option) => (
+            <button
+              key={option.value}
+              className={
+                tab === option.value
+                  ? `${styles.tab} ${styles.tabActive}`
+                  : styles.tab
+              }
+              type="button"
+              role="tab"
+              aria-selected={tab === option.value}
+              onClick={() => {
+                setTab(option.value)
+                setDetail(false)
+              }}
+            >
+              {t(option.labelKey)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* One filter bar for every tab, applied on demand. */}
       <div className={styles.filters}>
         {/* Past periods in one tap: picking one fills in the dates and the
@@ -632,8 +687,11 @@ export default function Reports() {
             const value = event.target.value as (typeof QUICK_RANGES)[number]['value']
             if (value === 'chosen') return
             const range = rangeDates(value, { from, to })
+            const mappedPeriod = periodForRange(value)
             setFrom(range.from)
             setTo(range.to)
+            if (mappedPeriod) setPeriod(mappedPeriod)
+            setApplied((n) => n + 1)
           }}
           aria-label={t('rep.showPeriod')}
         >
@@ -645,20 +703,30 @@ export default function Reports() {
         </select>
 
         <label className={styles.dates}>
+          {/* Every day can be picked. A start after the end moves the end
+              along with it (and the reverse), so the range is never upside
+              down; dates with nothing recorded read "No data found". */}
           <input
             type="date"
             value={from}
-            max={to || undefined}
-            onChange={(event) => setFrom(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value
+              setFrom(value)
+              if (value && to && value > to) setTo(value)
+              setApplied((n) => n + 1)
+            }}
             aria-label={t("sales.fromDate")}
           />
           <span aria-hidden="true">–</span>
           <input
             type="date"
             value={to}
-            min={from || undefined}
-            max={todayIso()}
-            onChange={(event) => setTo(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value
+              setTo(value)
+              if (value && from && value < from) setFrom(value)
+              setApplied((n) => n + 1)
+            }}
             aria-label={t("sales.toDate")}
           />
         </label>
@@ -704,43 +772,6 @@ export default function Reports() {
         </button>
       </div>
 
-      <div className={styles.tiles}>
-        {tiles.map((tile) => (
-          <div key={tile.key} className={styles.tile} data-tone={tile.tone}>
-            <span className={styles.tileIcon}>
-              <Icon name={tile.icon} size={19} />
-            </span>
-            <div className={styles.tileBody}>
-              <span className={styles.tileLabel}>{tile.label}</span>
-              <strong className={`${styles.tileValue} tabular`}>
-                {tile.value}
-              </strong>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className={styles.tabs} role="tablist">
-        <div className={styles.tabList}>
-          {TABS.filter((option) => option.value !== 'TRANSFERS' || user?.role !== 'SALES').map((option) => (
-            <button
-              key={option.value}
-              className={
-                tab === option.value
-                  ? `${styles.tab} ${styles.tabActive}`
-                  : styles.tab
-              }
-              type="button"
-              role="tab"
-              aria-selected={tab === option.value}
-              onClick={() => setTab(option.value)}
-            >
-              {t(option.labelKey)}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Each report carries its own download, so "send me this month's cash"
           is two taps rather than a date range typed twice. */}
       <div className={styles.quickExport}>
@@ -776,108 +807,60 @@ export default function Reports() {
           <Icon name="download" size={15} />
           {t('rep.download')}
         </button>
+
+        {isOwner ? (
+          <button
+            type="button"
+            className={styles.detailButton}
+            aria-expanded={detail}
+            onClick={() => setDetail((open) => !open)}
+          >
+            {t(detail ? 'rep.hideDetail' : 'rep.showDetail')}
+          </button>
+        ) : null}
       </div>
+
+      {/* Without details, every table shows only its total row. */}
+      <div className={detail ? styles.report : `${styles.report} ${styles.totalsOnly}`}>
 
       {tab === 'SALES' ? (
         <>
-          <div className={styles.charts}>
-            <Card title={t('rep.salesTrend', { total: currency(sales?.summary.revenue ?? 0) })}>
-              {sales && sales.buckets.length > 0 ? (
-                <ColumnChart
-                  data={sales.buckets.map((bucket) => ({
-                    key: bucket.key,
-                    label: bucket.label,
-                    value: bucket.revenue,
-                  }))}
-                  height={220}
-                />
-              ) : (
-                <Empty>{t('rep.noSalesPeriod')}</Empty>
-              )}
-            </Card>
+          {/* Every category, item, service and the grand total for the dates. */}
+          <SalesTotals from={from} to={to} branch={branch} reload={applied} />
 
-            <Card title={t("rep.byCategory")}>
-              {categorySlices.length > 0 ? (
-                <Donut slices={categorySlices} totalLabel="Total Sales" />
-              ) : (
-                <Empty>{t('rep.noSalesPeriod')}</Empty>
-              )}
-            </Card>
-
-            <Card title={t("rep.byBranch")}>
-              <BarList
-                data={(sales?.byBranch ?? []).map((entry) => ({
-                  key: entry.id,
-                  label: entry.name,
-                  value: entry.revenue,
-                  note: `${count(entry.transactions)} sales`,
-                }))}
-                emptyMessage={t("rep.noBranchSales")}
-              />
-            </Card>
-          </div>
-
-          <Card title={t("rep.branchPerformance")}>
-            {(sales?.byBranch ?? []).length === 0 ? (
-              <Empty>{t('rep.noBranchSales')}</Empty>
+          <Card
+            title={t('rep.totalSales')}
+            subtitle={t(`rep.${period}`)}
+          >
+            {!sales || sales.buckets.length === 0 ? (
+              <Empty>{t('rep.noSalesPeriod')}</Empty>
             ) : (
               <div className={styles.scroll}>
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th scope="col">{t('common.branch')}</th>
+                      <th scope="col">{t('rep.period')}</th>
+                      <th scope="col">{t('sales.qty')}</th>
+                      <th scope="col">{t('pay.received')}</th>
                       <th scope="col">{t('rep.totalSales')}</th>
-                      <th scope="col">{t('rep.salesCount')}</th>
-                      {CATEGORY_ORDER.map((key) => (
-                        <th key={key} scope="col">
-                          {CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key}
-                        </th>
-                      ))}
-                      <th scope="col">{t('sales.cashReceived')}</th>
                     </tr>
                   </thead>
-
                   <tbody>
-                    {(sales?.byBranch ?? []).map((entry) => (
-                      <tr key={entry.id}>
-                        <td data-label={t('common.branch')} className={styles.strong}>
-                          {entry.name}
-                        </td>
-                        <td data-label={t('rep.totalSales')} className="tabular">
-                          {currency(entry.revenue)}
-                        </td>
-                        <td data-label={t('rep.salesCount')} className="tabular">
-                          {count(entry.transactions)}
-                        </td>
-                        {CATEGORY_ORDER.map((key) => (
-                          <td key={key} data-label={CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key} className="tabular">
-                            {count(entry.byCategory?.[key]?.quantity ?? 0)}
-                          </td>
-                        ))}
-                        <td data-label={t('sales.cashReceived')} className="tabular">
-                          {currency(entry.cashReceived)}
-                        </td>
+                    {sales.buckets.map((bucket) => (
+                      <tr key={bucket.key}>
+                        <td data-label={t('rep.period')} className={styles.strong}>{bucket.label}</td>
+                        <td data-label={t('sales.qty')} className="tabular">{count(bucket.transactions)}</td>
+                        <td data-label={t('pay.received')} className="tabular">{currency(bucket.cashReceived)}</td>
+                        <td data-label={t('rep.totalSales')} className={`${styles.strong} tabular`}>{currency(bucket.revenue)}</td>
                       </tr>
                     ))}
                   </tbody>
-
                   <tfoot>
                     <tr>
-                      <td data-label={t('common.branch')}>{t('rep.totalRow')}</td>
-                      <td data-label={t('rep.totalSales')} className="tabular">
-                        {currency(sales?.summary.revenue ?? 0)}
-                      </td>
-                      <td data-label={t('rep.salesCount')} className="tabular">
-                        {count(sales?.summary.transactions ?? 0)}
-                      </td>
-                      {CATEGORY_ORDER.map((key) => (
-                        <td key={key} data-label={CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key} className="tabular">
-                          {count(sales?.summary.byCategory?.[key]?.quantity ?? 0)}
-                        </td>
-                      ))}
-                      <td data-label={t('sales.cashReceived')} className="tabular">
-                        {currency(sales?.summary.cashReceived ?? 0)}
-                      </td>
+                      <td data-label={t('rep.period')}>{t('rep.totalRow')}</td>
+                      <td data-label={t('sales.qty')} className="tabular">{count(sales.summary.transactions)}</td>
+                      <td data-label={t('pay.received')} className="tabular">{currency(sales.summary.cashReceived)}</td>
+                      <td data-label={t('rep.totalSales')} className="tabular">{currency(sales.summary.revenue)}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -885,87 +868,10 @@ export default function Reports() {
             )}
           </Card>
 
-          {/* One row per day per branch: airtime (Voucher and Ibid together),
-              phones and SIM cards, each as birr and pieces sold. */}
-          <Card title={t('rep.dailyByBranch')}>
-            {(sales?.dailyByBranch ?? []).length === 0 ? (
-              <Empty>{t('rep.noBranchSales')}</Empty>
-            ) : (
-              <div className={styles.scroll}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th scope="col">{t('req.date')}</th>
-                      <th scope="col">{t('common.branch')}</th>
-                      {DAILY_ORDER.map((key) => (
-                        <th key={key} scope="col">
-                          {CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key}
-                        </th>
-                      ))}
-                      <th scope="col">{t('rep.totalSales')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(sales?.dailyByBranch ?? []).flatMap((row) =>
-                      Object.entries(row.branches)
-                        .map(([id, cell]) => ({
-                          id,
-                          cell,
-                          name:
-                            (sales?.byBranch ?? []).find((entry) => entry.id === id)?.name ?? '—',
-                        }))
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map(({ id, cell, name }, index) => (
-                          <tr key={`${row.day}-${id}`}>
-                            <td data-label={t('req.date')} className={styles.strong}>
-                              {index === 0 ? shortDate(`${row.day}T12:00:00`) : ''}
-                            </td>
-                            <td data-label={t('common.branch')}>{name}</td>
-                            {DAILY_ORDER.map((key) => (
-                              <td
-                                key={key}
-                                data-label={CATEGORY_KEY[key] ? t(CATEGORY_KEY[key]) : key}
-                                className="tabular"
-                              >
-                                {currency(cell.byCategory?.[key]?.revenue ?? 0)}
-                                <em className={styles.sub}>
-                                  {t('rep.nSold', { n: count(cell.byCategory?.[key]?.quantity ?? 0) })}
-                                </em>
-                              </td>
-                            ))}
-                            <td data-label={t('rep.totalSales')} className={`${styles.strong} tabular`}>
-                              {currency(cell.revenue)}
-                            </td>
-                          </tr>
-                        )),
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
+          {/* One line per salesperson per day, National ID, Telebirr and
+              deductions included; a line opens to the day's detail. */}
+          {detail ? <SalesDaysReport from={from} to={to} branch={branch} reload={applied} /> : null}
 
-          {/* What sold, item by item and branch by branch. */}
-          <ItemBreakdown
-            titleKey="rep.salesByItem"
-            money
-            branches={(sales?.byBranch ?? [])
-              .map((entry) => ({ id: entry.id, name: entry.name }))
-              .sort((a, b) => a.name.localeCompare(b.name))}
-            rows={(sales?.byItem ?? []).map((item) => ({
-              key: item.id,
-              name: item.name,
-              sku: item.sku,
-              category: item.category,
-              categoryName: item.categoryName,
-              at: Object.fromEntries(
-                Object.entries(item.branches).map(([id, value]) => [
-                  id,
-                  { quantity: value.quantity, revenue: value.revenue },
-                ]),
-              ),
-            }))}
-          />
         </>
       ) : null}
 
@@ -1049,6 +955,7 @@ export default function Reports() {
 
         {/* The same stock, item by item: Airtime 100 is 40 Ibid 50 and 60
             Voucher 15, not just "100". */}
+        {detail ? (
         <ItemBreakdown
           titleKey="rep.stockByItem"
           branches={(stock?.branches ?? []).map((entry) => ({ id: entry.id, name: entry.name }))}
@@ -1072,6 +979,7 @@ export default function Reports() {
             }, {}),
           )}
         />
+        ) : null}
         </>
       ) : null}
 
@@ -1181,6 +1089,7 @@ export default function Reports() {
         </Card>
 
         {/* What was asked for, item by item and branch by branch. */}
+        {detail ? (
         <ItemBreakdown
           titleKey="rep.requestsByItem"
           branches={[
@@ -1212,39 +1121,12 @@ export default function Reports() {
             }, {}),
           )}
         />
+        ) : null}
         </>
       ) : null}
 
       {tab === 'CASH' ? (
         <>
-          <div className={styles.charts}>
-            <Card title={t("rep.cashPosition")}>
-              <BarList
-                data={[
-                  {
-                    key: 'sold',
-                    label: t('rep.sold'),
-                    value: cash?.totals.sold ?? 0,
-                    color: 'var(--series-1)',
-                  },
-                  {
-                    key: 'banked',
-                    label: t('rep.banked'),
-                    value: cash?.totals.banked ?? 0,
-                    color: 'var(--success)',
-                  },
-                  {
-                    key: 'inHand',
-                    label: t('rep.stillInHand'),
-                    value: cash?.totals.inHand ?? 0,
-                    color: 'var(--warning)',
-                  },
-                ]}
-                emptyMessage={t("rep.noCash")}
-              />
-            </Card>
-          </div>
-
           <Card title={t("rep.bySalesperson")}>
             {(cash?.salespeople ?? []).length === 0 ? (
               <Empty>{t('rep.noCash')}</Empty>
@@ -1259,11 +1141,14 @@ export default function Reports() {
                         <th scope="col">{t('rep.broughtForward')}</th>
                       ) : null}
                       <th scope="col">{t('rep.sold')}</th>
+                      <th scope="col">{t('rep.otherCash')}</th>
                       <th scope="col">{t('cash.handedOver')}</th>
                       {carriesCash ? (
                         <th scope="col">{t('cash.takenIn')}</th>
                       ) : null}
                       <th scope="col">{t('rep.banked')}</th>
+                      <th scope="col">{t('rep.expenses')}</th>
+                      <th scope="col">{t('rep.deductions')}</th>
                       <th scope="col">{t('rep.stillInHand')}</th>
                     </tr>
                   </thead>
@@ -1285,6 +1170,9 @@ export default function Reports() {
                         <td data-label={t('rep.sold')} className="tabular">
                           {currency(person.sold)}
                         </td>
+                        <td data-label={t('rep.otherCash')} className="tabular">
+                          {currency(person.other)}
+                        </td>
                         <td data-label={t('cash.handedOver')} className="tabular">
                           {currency(person.handedOver)}
                         </td>
@@ -1295,6 +1183,12 @@ export default function Reports() {
                         ) : null}
                         <td data-label={t('rep.banked')} className="tabular">
                           {currency(person.banked)}
+                        </td>
+                        <td data-label={t('rep.expenses')} className="tabular">
+                          {currency(person.expenses)}
+                        </td>
+                        <td data-label={t('rep.deductions')} className="tabular">
+                          {currency(person.deductions)}
                         </td>
                         <td data-label={t('rep.stillInHand')} className={`${styles.strong} tabular`}>
                           {currency(person.inHand)}
@@ -1317,6 +1211,9 @@ export default function Reports() {
                       <td data-label={t('rep.sold')} className="tabular">
                         {currency(cash?.totals.sold ?? 0)}
                       </td>
+                      <td data-label={t('rep.otherCash')} className="tabular">
+                        {currency(cash?.totals.other ?? 0)}
+                      </td>
                       <td data-label={t('cash.handedOver')} className="tabular">
                         {currency(cash?.totals.handedOver ?? 0)}
                       </td>
@@ -1327,6 +1224,12 @@ export default function Reports() {
                       ) : null}
                       <td data-label={t('rep.banked')} className="tabular">
                         {currency(cash?.totals.banked ?? 0)}
+                      </td>
+                      <td data-label={t('rep.expenses')} className="tabular">
+                        {currency(cash?.totals.expenses ?? 0)}
+                      </td>
+                      <td data-label={t('rep.deductions')} className="tabular">
+                        {currency(cash?.totals.deductions ?? 0)}
                       </td>
                       <td data-label={t('rep.stillInHand')} className="tabular">
                         {currency(cash?.totals.inHand ?? 0)}
@@ -1340,7 +1243,7 @@ export default function Reports() {
 
           {/* The branch's own way of keeping the book: each day opens with
               what was carried over, and closes with what is still held. */}
-          {carriesCash && cash?.days && cash.days.length > 0 ? (
+          {detail && carriesCash && cash?.days && cash.days.length > 0 ? (
             <Card title={t('rep.dailyCash')} subtitle={t('rep.dailyCashNote')}>
               <div className={styles.scroll}>
                 <table className={styles.table}>
@@ -1349,6 +1252,7 @@ export default function Reports() {
                       <th scope="col">{t('rep.date')}</th>
                       <th scope="col">{t('rep.broughtForward')}</th>
                       <th scope="col">{t('rep.collected')}</th>
+                      <th scope="col">{t('rep.spent')}</th>
                       <th scope="col">{t('rep.deposited')}</th>
                       <th scope="col">{t('rep.carriedForward')}</th>
                     </tr>
@@ -1364,6 +1268,9 @@ export default function Reports() {
                         </td>
                         <td data-label={t('rep.collected')} className="tabular">
                           {currency(day.collected)}
+                        </td>
+                        <td data-label={t('rep.spent')} className="tabular">
+                          {currency(day.spent)}
                         </td>
                         <td data-label={t('rep.deposited')} className="tabular">
                           {currency(day.deposited)}
@@ -1384,7 +1291,112 @@ export default function Reports() {
         </>
       ) : null}
 
-      {tab === 'TRANSFERS' ? <TransferReport rows={scopedTransfers} /> : null}
+      {tab === 'TRANSFERS' ? <TransferReport rows={scopedTransfers} detail={detail} /> : null}
+
+      {tab === 'EXPENSES' ? (
+        <>
+          {user?.role === 'OWNER' && expenses && expenses.byBranch.length > 0 ? (
+            <Card title={t('exp.byBranch')}>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('common.branch')}</th>
+                      <th scope="col">{t('exp.count')}</th>
+                      <th scope="col">{t('exp.total')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.byBranch.map((row) => (
+                      <tr key={row.id}>
+                        <td data-label={t('common.branch')} className={styles.strong}>{row.name}</td>
+                        <td data-label={t('exp.count')} className="tabular">{count(row.count)}</td>
+                        <td data-label={t('exp.total')} className={`${styles.strong} tabular`}>{currency(row.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : null}
+
+          {expenses && expenses.byReason.length > 0 ? (
+            <Card title={t('exp.byReason')}>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('exp.reason')}</th>
+                      <th scope="col">{t('exp.count')}</th>
+                      <th scope="col">{t('exp.total')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.byReason.map((row) => (
+                      <tr key={row.reason}>
+                        <td data-label={t('exp.reason')} className={styles.strong}>{row.reason}</td>
+                        <td data-label={t('exp.count')} className="tabular">{count(row.count)}</td>
+                        <td data-label={t('exp.total')} className={`${styles.strong} tabular`}>{currency(row.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : null}
+
+          <Card title={t('exp.entries')} subtitle={t('exp.noteOwner')}>
+            {!expenses || expenses.expenses.length === 0 ? (
+              <Empty>{t('exp.none')}</Empty>
+            ) : (
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('req.date')}</th>
+                      <th scope="col">{t('exp.reason')}</th>
+                      <th scope="col">{t('rep.amount')}</th>
+                      <th scope="col">{t('common.branch')}</th>
+                      <th scope="col">{t('ibid.by')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.expenses.map((row) => (
+                      <tr key={row.id}>
+                        <td data-label={t('req.date')}>{shortDate(row.expenseDate)}</td>
+                        <td data-label={t('exp.reason')} className={styles.strong}>
+                          {row.reason}
+                          {row.note ? ` — ${row.note}` : null}
+                        </td>
+                        <td data-label={t('rep.amount')} className={`${styles.strong} tabular`}>
+                          {currency(Number(row.amount))}
+                        </td>
+                        <td data-label={t('common.branch')}>{row.branch.name}</td>
+                        <td data-label={t('ibid.by')}>{row.recordedBy.name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td data-label={t('req.date')}>{t('exp.total')}</td>
+                      <td data-label={t('exp.reason')} />
+                      <td data-label={t('rep.amount')} className="tabular">
+                        {currency(expenses.total)}
+                      </td>
+                      <td data-label={t('common.branch')} />
+                      <td data-label={t('ibid.by')} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </Card>
+        </>
+      ) : null}
+
+      {tab === 'RECEIPTS' ? (
+        <BankReportCard from={from} to={to} branch={branch} reload={applied} />
+      ) : null}
 
       {tab === 'RECEIPTS' ? (
         <Card
@@ -1507,6 +1519,12 @@ export default function Reports() {
           )}
         </Card>
       ) : null}
+
+      </div>
+
+      {/* A salesperson by name: their sales item by item and everything else
+          that touched their money. */}
+      {user?.role !== 'SALES' ? <PersonReport from={from} to={to} reload={applied} /> : null}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

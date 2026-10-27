@@ -3,9 +3,6 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import type { CategoryRow } from './types'
 
-/** The three that come with the system; they cannot be deleted. */
-export const BUILT_IN = new Set(['cat_sim', 'cat_phone', 'cat_airtime'])
-
 /** The Owner's categories, in the order they were made, and a way to re-read them. */
 export function useCategories() {
   const [categories, setCategories] = useState<CategoryRow[]>([])

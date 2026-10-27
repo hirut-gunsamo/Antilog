@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../auth/context'
@@ -16,7 +16,9 @@ import { disablePush } from '../lib/push'
 import { useSettings } from '../lib/settings'
 import { useToasts } from '../lib/toasts'
 import { startSync, stopSync } from '../lib/sync'
+import { useTableFilter } from '../lib/tableFilter'
 import { AppStatus } from './AppStatus'
+import { GlobalSearch } from './GlobalSearch'
 import { InstallHelp } from './InstallHelp'
 import { RemoveAppHelp } from './RemoveAppHelp'
 import { SignOutDialog } from './SignOutDialog'
@@ -89,7 +91,8 @@ const NAV: NavItem[] = [
       { to: '/damage-loss', labelKey: 'nav.damageLoss', noteKey: 'loss.note', icon: 'warning', roles: ['OWNER', 'SUPERVISOR', 'SALES'] },
     ],
   },
-  { to: '/sales', labelKey: 'nav.sales', noteKey: 'sales.note', icon: 'cart', roles: ['OWNER', 'SUPERVISOR', 'SALES'], primary: true },
+  // The page is for those who sell; the Owner has no sales view.
+  { to: '/sales', labelKey: 'nav.sales', noteKey: 'sales.note', icon: 'cart', roles: ['SUPERVISOR', 'SALES'], primary: true },
   {
     to: '/national-id',
     labelKey: 'nav.nationalId',
@@ -108,18 +111,25 @@ const NAV: NavItem[] = [
     roles: ['OWNER', 'SUPERVISOR', 'SALES'],
     primary: true,
     // A supervisor's two lists: from their salespeople, and to the Owner.
-    // The Owner's two: from salespeople, and from supervisors.
+    // The Owner's one: from supervisors.
     children: [
-      { to: '/requests/sales', labelKey: 'req.titleSales', icon: 'users', roles: ['OWNER', 'SUPERVISOR'] },
+      { to: '/requests/sales', labelKey: 'req.titleSales', icon: 'users', roles: ['SUPERVISOR'] },
       { to: '/requests/supervisors', labelKey: 'req.titleSupervisor', icon: 'clipboard', roles: ['OWNER'] },
+      { to: '/send', labelKey: 'send.navOwner', icon: 'sync', roles: ['OWNER'] },
       { to: '/requests/mine', labelKey: 'req.titleMine', icon: 'clipboard', roles: ['SUPERVISOR'] },
+      { to: '/send', labelKey: 'send.navSupervisor', icon: 'sync', roles: ['SUPERVISOR'] },
     ],
   },
+  // Restock requests are approved and sent here, by the Owner too.
   { to: '/approvals', labelKey: 'nav.approvals', icon: 'check', roles: ['OWNER', 'SUPERVISOR'] },
-  { to: '/receipts', labelKey: 'nav.receipts', icon: 'receipt', roles: ['OWNER', 'SUPERVISOR'] },
-  // Supervisors record what their branch paid out; the Owner reads the report.
-  { to: '/expenses', labelKey: 'nav.expenses', noteKey: 'exp.note', icon: 'cash', roles: ['OWNER', 'SUPERVISOR'] },
+  // Supervisors' pages; the Owner reads receipts and expenses in Reports.
+  { to: '/receipts', labelKey: 'nav.receipts', icon: 'receipt', roles: ['SUPERVISOR', 'SALES'] },
+  { to: '/expenses', labelKey: 'nav.expenses', noteKey: 'exp.note', icon: 'cash', roles: ['SUPERVISOR', 'SALES'] },
+  // Everyone's own deductions; the Owner sees all of them.
+  { to: '/deductions', labelKey: 'nav.deductions', noteKey: 'ded.note', icon: 'warning', roles: ['OWNER', 'SUPERVISOR', 'SALES'] },
   { to: '/reports', labelKey: 'nav.reports', icon: 'chart', roles: ['OWNER', 'SUPERVISOR', 'SALES'] },
+  // What the business made: the Owner's alone.
+  { to: '/profit', labelKey: 'nav.profit', noteKey: 'pl.note', icon: 'cash', roles: ['OWNER'] },
   { to: '/equipment', labelKey: 'asset.title', noteKey: 'asset.note', icon: 'box', roles: ['OWNER', 'SUPERVISOR'] },
   { to: '/branches', labelKey: 'nav.branches', noteKey: 'branches.note', icon: 'branch', roles: ['OWNER'] },
   { to: '/users', labelKey: 'nav.users', icon: 'users', roles: ['OWNER', 'SUPERVISOR'] },
@@ -163,6 +173,8 @@ function Icon({
   )
 }
 
+const SIDEBAR_KEY = 'antilog.sidebar'
+
 export default function AppShell() {
   const { user, logout } = useAuth()
   const location = useLocation()
@@ -170,6 +182,26 @@ export default function AppShell() {
   const { settings } = useSettings()
   // One fetch shared by the mobile and desktop bells.
   const notifications = useNotifications(location.pathname)
+
+  // The desktop sidebar can be tucked away for more room, and stays so.
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === 'hidden'
+    } catch {
+      return false
+    }
+  })
+
+  function toggleSidebar() {
+    setSidebarHidden((hidden) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, hidden ? 'shown' : 'hidden')
+      } catch {
+        // Private windows may refuse storage; the toggle still works.
+      }
+      return !hidden
+    })
+  }
 
   // Supervisors are who the branch waits on, so a new request or approval
   // pops up for them instead of only moving the badge.
@@ -301,11 +333,17 @@ export default function AppShell() {
   // page, instead of flashing open for one paint and then closing.
   const [lastPath, setLastPath] = useState(location.pathname)
 
+  // The header search narrows the open page's tables; a new page starts clear.
+  const [query, setQuery] = useState('')
+  const contentRef = useRef<HTMLElement>(null)
+  const searchCounts = useTableFilter(contentRef, query)
+
   if (lastPath !== location.pathname) {
     setLastPath(location.pathname)
     setMenuOpen(false)
     setMoreOpen(false)
     setPhoneMenuOpen(false)
+    setQuery('')
   }
 
   if (!user) return null
@@ -348,6 +386,18 @@ export default function AppShell() {
 
   const current = flat.find((item) => item.to === location.pathname)
 
+  // Every page this person can open, once each, for the search to offer.
+  const searchPages = flat
+    .filter((item, index) => flat.findIndex((other) => other.to === item.to) === index)
+    .map((item) => ({
+      to: item.to,
+      label: t(item.labelKey),
+      note: item.noteKey ? t(item.noteKey) : undefined,
+    }))
+  const search = (
+    <GlobalSearch query={query} onQuery={setQuery} pages={searchPages} counts={searchCounts} />
+  )
+
   // The brand block is two lines. Split the configured name on the last
   // "Management" so a custom name still reads sensibly, and fall back to the
   // whole string on one line when there is nothing to split on.
@@ -366,7 +416,22 @@ export default function AppShell() {
   })()
 
   return (
-    <div className={styles.shell} data-role={user.role.toLowerCase()}>
+    <div
+      className={styles.shell}
+      data-role={user.role.toLowerCase()}
+      data-sidebar={sidebarHidden ? 'hidden' : 'shown'}
+    >
+      {/* The arrow on the sidebar's edge: hides it, and brings it back. */}
+      <button
+        type="button"
+        className={styles.sidebarToggle}
+        onClick={toggleSidebar}
+        aria-label={t(sidebarHidden ? 'nav.showSidebar' : 'nav.hideSidebar')}
+        title={t(sidebarHidden ? 'nav.showSidebar' : 'nav.hideSidebar')}
+      >
+        <Icon name="chevronRight" size={16} />
+      </button>
+
       {/* ---------- Sidebar (desktop) ---------- */}
       <aside className={styles.sidebar}>
         <NavLink to="/dashboard" className={styles.brand}>
@@ -491,6 +556,7 @@ export default function AppShell() {
           </span>
 
           <div className={styles.mobileActions}>
+            {search}
             <LanguageToggle />
             <ThemeToggle />
             <RefreshButton />
@@ -599,6 +665,7 @@ export default function AppShell() {
           </div>
 
           <div className={styles.headerRight}>
+            {search}
             <LanguageToggle />
             <ThemeToggle />
             <RefreshButton />
@@ -685,9 +752,11 @@ export default function AppShell() {
           </div>
         </header>
 
-        <main className={styles.content}>
+        <main className={styles.content} ref={contentRef}>
           <AppStatus />
-          <Outlet />
+          <Suspense fallback={<p className={styles.pageLoading}>…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

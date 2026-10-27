@@ -464,6 +464,10 @@ export type ProductRow = {
   description: string | null
   /** Prisma serialises Decimal as a string. */
   price: string
+  /** What the business pays for one. Sent to the Owner only. */
+  costPrice?: string | null
+  /** The Owner only: branches selling it at a price of their own. */
+  branchPrices?: { branchId: string; name: string; price: string }[]
   status: ProductStatus
   createdAt: string
   simDetails: { network: string | null } | null
@@ -530,7 +534,7 @@ export type Sale = {
   subtotal: string
   totalAmount: string
   cashReceived: string
-  paymentMethod: 'CASH' | 'TRANSFER'
+  paymentMethod: 'CASH' | 'TRANSFER' | 'MIXED'
   bankName: string | null
   transferReceived: string
   notes: string | null
@@ -539,10 +543,26 @@ export type Sale = {
   submittedAt: string | null
   approvedAt: string | null
   createdAt: string
+  /** After its day, a sale can be changed only until this moment (Owner's leave). */
+  editAllowedUntil?: string | null
+  /** When it was last corrected. */
+  editedAt?: string | null
+  /** The salesperson asked the Owner to let them correct it. */
+  editRequestedAt?: string | null
   salesperson: { id: string; name: string; role: string }
   approvedBy: { id: string; name: string; role: string } | null
   location: { id: string; name: string }
   items: SaleItem[]
+  /** SIM transfers done in this sale, at the Owner's fixed price. */
+  simTransfers?: { id: string; quantity: number; price: string }[]
+  /** A payment correction waiting for the Owner. */
+  payFixRequestedAt?: string | null
+  payFixMethod?: 'CASH' | 'TRANSFER' | 'MIXED' | null
+  payFixCash?: string | null
+  payFixTransfer?: string | null
+  payFixBank?: string | null
+  /** Bills paid through the sale: WiFi, electricity, water... */
+  billPayments?: { id: string; billType: string; account: string | null; amount: string }[]
 }
 
 /* ---------------------------------------------------------------------------
@@ -582,10 +602,14 @@ export type StockRequest = {
   kind: StockRequestKind
   status: RequestStatus
   notes: string | null
+  leftOnHand: string | null
   rejectionReason: string | null
   submittedAt: string | null
   reviewedAt: string | null
   fulfilledAt: string | null
+  /** A salesperson's issue: when they confirmed it was in their hands. */
+  receivedAt?: string | null
+  receivedBy?: { id: string; name: string } | null
   createdAt: string
   requestedBy: {
     id: string
@@ -593,7 +617,7 @@ export type StockRequest = {
     role: string
     branch: { id: string; name: string } | null
   }
-  requestedTo: { id: string; name: string; role: string } | null
+  requestedTo: { id: string; name: string; role: string; branch?: { id: string; name: string } | null } | null
   approvedBy: { id: string; name: string; role: string } | null
   items: {
     id: string
@@ -601,6 +625,11 @@ export type StockRequest = {
     quantity: number
     /** Units the reviewer agreed to send (0..quantity); null until approved. */
     approvedQuantity: number | null
+    /** A salesperson's issue: when they received this line. */
+    receivedAt?: string | null
+    /** SIM cards handed to a salesperson: the ICCID range given. */
+    iccidFrom?: string | null
+    iccidTo?: string | null
     product: {
       id: string
       sku: string
@@ -658,6 +687,9 @@ export type CashReport = {
 }
 
 export type BankReceipt = {
+  /** Reopened by the Owner for 24 hours after it was checked. */
+  editAllowedUntil?: string | null
+  editRequestedAt?: string | null
   id: string
   bankName: string | null
   referenceNumber: string | null
@@ -744,6 +776,16 @@ export type SalesReport = {
     transactions: number
     byCategory: CategoryFigures
   }[]
+  /** The same figures per salesperson, with their branch. */
+  bySalesperson: {
+    id: string
+    name: string
+    branch: string
+    revenue: number
+    cashReceived: number
+    transactions: number
+    byCategory: CategoryFigures
+  }[]
   byItem: {
     id: string
     sku: string
@@ -771,18 +813,27 @@ export type CashPositionReport = {
     /** Cash held from before the first day: yadere, brought forward. */
     opening: number
     sold: number
+    /** National ID and Telebirr money taken in cash. */
+    other: number
     handedOver: number
     collected: number
     banked: number
+    /** Expenses paid from their cash. */
+    expenses: number
+    /** Money lost; also taken off their salary. */
+    deductions: number
     /** Still held on the last day: keri, which opens the next day. */
     inHand: number
   }[]
   totals: {
     opening: number
     sold: number
+    other: number
     handedOver: number
     collected: number
     banked: number
+    expenses: number
+    deductions: number
     inHand: number
   }
   /** One row per day; null unless both ends of the range were given. */
@@ -791,10 +842,24 @@ export type CashPositionReport = {
         date: string
         opening: number
         collected: number
+        /** Expenses and deductions. */
+        spent: number
         deposited: number
         closing: number
       }[]
     | null
+}
+
+/** Money credited to each bank, person by person. */
+export type BankReport = {
+  banks: {
+    bank: string
+    people: { id: string; name: string; branch: string | null; deposits: number; transfers: number; total: number }[]
+    deposits: number
+    transfers: number
+    total: number
+  }[]
+  totals: { deposits: number; transfers: number; total: number }
 }
 
 export type InventoryReport = {
@@ -837,6 +902,8 @@ export type AppSettings = {
   /** Decimal strings: what a branch charges per National ID print. */
   nationalIdOriginalRate: string
   nationalIdCopyRate: string
+  /** The fixed price of a SIM transfer. */
+  simTransferPrice: string
   notifySales: boolean
   notifyRequests: boolean
   notifyApprovals: boolean
@@ -873,11 +940,13 @@ export type NotificationKind =
   | 'REPORTS_TO_APPROVE'
   | 'RECEIPTS_TO_VERIFY'
   | 'LOSSES_TO_REVIEW'
+  | 'EDITS_TO_ALLOW'
   | 'MY_DRAFTS'
   | 'MY_REJECTED'
   | 'MY_REQUEST_APPROVED'
   | 'MY_REQUEST_REJECTED'
   | 'DELIVERIES_TO_RECEIVE'
+  | 'ISSUES_TO_RECEIVE'
   | 'TRANSFERS_DONE'
   | 'EXPENSES_ADDED'
   | 'NID_TO_FORWARD'
@@ -909,8 +978,10 @@ export type Notifications = {
 
 export type IbidSummary = {
   values: number[]
-  /** The live main balance: every load less every print. */
+  /** The chosen branch's live balance; for the Owner with none chosen, all of them. */
   balance: string
+  /** Every branch's own balance. Owner only; empty for anyone else. */
+  balances: { id: string; name: string; balance: number }[]
   loadedInPeriod: number
   printedInPeriod: number
   printedToday: number
@@ -954,11 +1025,17 @@ export type PayrollMonth = {
     byCategory: Record<'AIRTIME_VOUCHER' | 'PHONE' | 'SIM_CARD', PayFigures>
     salary: number
     commission: number
+    /** This month's total from the Deductions page, plus carriedIn. */
+    deducted: number
+    /** What the last salary could not cover, taken off this one. */
+    carriedIn: number
     payment: {
       id: string
       bonus: number
       deduction: number
       net: number
+      /** Deduction this pay could not cover; taken off the next salary. */
+      carriedOver: number
       note: string | null
       paidAt: string
       paidBy: string
@@ -990,6 +1067,9 @@ export type CommissionPaymentRow = {
     branch: { id: string; name: string } | null
   }
   lines: {
+    /** The first day paid for, and the day after the last. */
+    periodStart?: string | null
+    periodEnd?: string | null
     id: string
     category: 'AIRTIME_VOUCHER' | 'PHONE' | 'SIM_CARD' | 'OTHER'
     /** The Owner's category; null for National ID. */
@@ -1011,7 +1091,10 @@ export type CommissionPaymentRow = {
 export type TelebirrSplit = { cashIn: number; airtime: number; count: number }
 
 export type TelebirrSummary = {
+  /** The chosen branch's balance; for the Owner with none chosen, all of them. */
   balance: string
+  /** Every branch's own balance. Owner only; empty for anyone else. */
+  balances: { id: string; name: string; balance: number }[]
   loadedInPeriod: number
   period: TelebirrSplit
   today: TelebirrSplit
@@ -1026,6 +1109,12 @@ export type TelebirrSummary = {
     by: { id: string; name: string }
     customerPhone: string | null
     note: string | null
+    /** Cash-ins and airtime only. */
+    paymentMethod?: 'CASH' | 'TRANSFER' | 'MIXED'
+    transferAmount?: string
+    bankName?: string | null
+    /** Whether the viewer may still correct it (a seller: today, or a day the Owner opened). */
+    editable?: boolean
   }[]
 }
 
@@ -1035,6 +1124,8 @@ export type TelebirrSummary = {
 
 export type TransferRow = {
   id: string
+  /** Sent by the Owner unasked, from the Send to a branch page. */
+  directSend?: boolean
   status: 'PENDING' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED'
   notes: string | null
   shippedAt: string | null
@@ -1044,7 +1135,8 @@ export type TransferRow = {
   driverPhone: string | null
   vehiclePlate: string | null
   fromLocation: { id: string; name: string; isMainStock: boolean }
-  toLocation: { id: string; name: string; isMainStock: boolean }
+  /** `_count.users`: active supervisors there; without one the Owner receives. */
+  toLocation: { id: string; name: string; isMainStock: boolean; _count?: { users: number } }
   deliveredBy: { id: string; name: string } | null
   receivedBy: { id: string; name: string } | null
   request: { id: string; requestedBy: { id: string; name: string } } | null
@@ -1074,6 +1166,25 @@ export type CategoryRow = {
    Expenses (money a branch paid out)
    --------------------------------------------------------------------------- */
 
+/** One day's deduction from someone's pay: the items short or lost. */
+export type Deduction = {
+  id: string
+  day: string
+  total: string
+  note: string | null
+  createdAt: string
+  user: { id: string; name: string; role: string; branch: { id: string; name: string } | null }
+  recordedBy: { id: string; name: string }
+  lines: {
+    id: string
+    productId: string | null
+    label: string
+    quantity: number
+    unitPrice: string
+    amount: string
+  }[]
+}
+
 export type ExpenseReport = {
   total: number
   byBranch: { id: string; name: string; total: number; count: number }[]
@@ -1087,6 +1198,8 @@ export type ExpenseReport = {
     createdAt: string
     branch: { id: string; name: string }
     recordedBy: { id: string; name: string }
+    /** Whose cash paid it; null on older expenses. */
+    spentBy: { id: string; name: string } | null
   }[]
 }
 
@@ -1101,17 +1214,24 @@ export type NidOrder = {
   kind: NidKind
   fullName: string
   price: string
-  status: 'REGISTERED' | 'REQUESTED' | 'AT_OWNER' | 'DONE' | 'LEFTOVER'
+  status: 'REGISTERED' | 'REQUESTED' | 'AT_OWNER' | 'APPROVED' | 'DONE' | 'LEFTOVER'
+  /** The request it was sent in, while it is in one. */
+  requestId: string | null
   createdAt: string
   doneAt: string | null
   location: { id: string; name: string }
   recordedBy: { id: string; name: string }
+  paymentMethod?: 'CASH' | 'TRANSFER' | 'MIXED'
+  transferAmount?: string
+  bankName?: string | null
+  /** Whether the viewer may still correct it (a seller: today, or a day the Owner opened). */
+  editable?: boolean
 }
 
 export type NidRequest = {
   id: string
   kind: NidKind
-  status: 'WITH_SUPERVISOR' | 'WITH_OWNER' | 'RETURNED'
+  status: 'WITH_SUPERVISOR' | 'WITH_OWNER' | 'APPROVED' | 'RETURNED' | 'RECEIVED'
   total: number
   doneCount: number | null
   leftoverCount: number | null
@@ -1123,6 +1243,8 @@ export type NidRequest = {
   requestedBy: { id: string; name: string }
   forwardedBy: { name: string } | null
   returnedBy: { name: string } | null
+  /** The names still in it, oldest first. */
+  orders: { id: string; fullName: string; status: NidOrder['status']; createdAt: string }[]
 }
 
 export type NidOverview = {
@@ -1130,4 +1252,60 @@ export type NidOverview = {
   totals: { waiting: number; withSupervisor: number; withOwner: number; done: number; leftover: number; money: number }
   orders: NidOrder[]
   requests: NidRequest[]
+  /** The Owner only: branches charging prices of their own. */
+  branchPrices?: { branchId: string; name: string; ORIGINAL: number; COPY: number }[]
+}
+
+/** One set of profit and loss figures: a branch, or a day. */
+export type ProfitFigures = {
+  sales: number
+  nationalId: number
+  goods: number
+  expenses: number
+  payroll: number
+  commission: number
+  losses: number
+  equipment: number
+  income: number
+  costs: number
+  profit: number
+}
+
+/** Profit and loss for the Owner, from /api/reports/profit. */
+export type ProfitReport = {
+  from: string
+  to: string
+  income: {
+    sales: number
+    salesByCategory: { kind: string; name: string | null; amount: number; cost: number }[]
+    /** Every branch, even one that sold nothing, with its sales by category. */
+    salesByBranch: {
+      id: string
+      name: string
+      amount: number
+      byCategory: { kind: string; name: string | null; amount: number }[]
+    }[]
+    nationalId: number
+    total: number
+  }
+  costs: {
+    goods: number
+    expenses: number
+    payroll: { net: number; salary: number; commission: number; bonus: number; deduction: number }
+    commission: number
+    losses: number
+    equipment: number
+    total: number
+  }
+  grossProfit: number
+  profit: number
+  uncosted: { quantity: number; revenue: number }
+  byBranch: ({ id: string; name: string } & ProfitFigures)[]
+  /** Newest day first. */
+  byDay: ({ date: string } & ProfitFigures)[]
+  /** Each branch's item sales, day by day. */
+  dailySales: {
+    branches: { id: string; name: string }[]
+    days: { date: string; byBranch: Record<string, number>; total: number }[]
+  }
 }

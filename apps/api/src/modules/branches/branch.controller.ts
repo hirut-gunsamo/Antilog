@@ -60,6 +60,12 @@ function handleBranchError(
           "A closed branch cannot be made a stock source. Reopen it first.",
       });
 
+    case "BRANCH_HAS_SELLERS":
+      return reply.status(409).send({
+        message:
+          "Nothing is sold at a main store. Move this branch's salespeople to a selling branch first.",
+      });
+
     case "LAST_MAIN_STOCK_BRANCH":
       return reply.status(409).send({
         message:

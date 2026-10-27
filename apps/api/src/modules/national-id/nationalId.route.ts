@@ -1,9 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { UserRole } from "database";
 
-import { authenticate } from "../../middleware/auth.js";
+import { authenticate, authorize } from "../../middleware/auth.js";
 
 import {
   blanksController,
+  deleteBlanksController,
+  updateBlanksController,
   createRecordController,
   deleteRecordController,
   listRecordsController,
@@ -29,6 +32,9 @@ export async function nationalIdRoutes(app: FastifyInstance) {
   // the print work above, so the two can never disagree.
   app.get("/blanks", blanksController);
   app.post("/blanks", receiveBlanksController);
+  // The Owner corrects or removes an arrival typed by mistake.
+  app.patch<{ Params: { id: string } }>("/blanks/:id", { preHandler: [authorize(UserRole.OWNER)] }, updateBlanksController);
+  app.delete<{ Params: { id: string } }>("/blanks/:id", { preHandler: [authorize(UserRole.OWNER)] }, deleteBlanksController);
 
   app.patch<{ Params: { id: string } }>("/:id", updateRecordController);
   app.delete<{ Params: { id: string } }>("/:id", deleteRecordController);

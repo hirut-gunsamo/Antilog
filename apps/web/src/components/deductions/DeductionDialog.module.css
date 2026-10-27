@@ -1,0 +1,30 @@
+/* The breakdown: one deduction per row, amount on the right, total last. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.list dt {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.list dd {
+  margin: 0;
+}
+
+.list > .totalRow {
+  border-bottom: 0;
+  font-size: 15px;
+}

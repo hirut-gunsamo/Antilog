@@ -1,4 +1,5 @@
 import type { TranslationKey } from './i18n'
+import { businessDay } from './tz'
 import type { Sale, SaleStatus } from './types'
 
 // The database identifies a sale by a cuid, which is unreadable and useless to
@@ -46,11 +47,11 @@ export function saleItemSummary(sale: Sale) {
 }
 
 export function isSameDay(iso: string, day: Date) {
-  const date = new Date(iso)
+  return businessDay(new Date(iso)) === businessDay(day)
+}
 
-  return (
-    date.getFullYear() === day.getFullYear() &&
-    date.getMonth() === day.getMonth() &&
-    date.getDate() === day.getDate()
-  )
+/** A sale can be changed on its own day, or later while the Owner allows it. */
+export function canEditSale(sale: { saleDate: string; editAllowedUntil?: string | null }, now = new Date()) {
+  const sameDay = businessDay(new Date(sale.saleDate)) === businessDay(now)
+  return sameDay || (sale.editAllowedUntil != null && new Date(sale.editAllowedUntil) > now)
 }

@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
 import { NewTransferDialog } from '../components/transfers/NewTransferDialog'
+import { ApproveRequestDialog } from '../components/requests/ApproveRequestDialog'
+import { NewRequestDialog } from '../components/requests/NewRequestDialog'
+import { askedOfBranch, requestRef } from '../lib/requests'
 import { Toasts } from '../components/Toasts'
 import { api } from '../lib/api'
 import { count, shortDate } from '../lib/format'
 import { useT, type TranslationKey } from '../lib/i18n'
 import { useToasts } from '../lib/toasts'
-import type { TransferRow } from '../lib/types'
+import type { StockRequest, TransferRow } from '../lib/types'
 import base from './Products.module.css'
 import styles from './Ibid.module.css'
 
@@ -39,7 +42,8 @@ export default function Transfers() {
   useEffect(() => {
     const controller = new AbortController()
     api<{ transfers: TransferRow[] }>('/api/transfers', { signal: controller.signal })
-      .then((payload) => setRows(payload.transfers ?? []))
+      // The Owner's own sends have their own page.
+      .then((payload) => setRows((payload.transfers ?? []).filter((row) => !row.directSend)))
       .catch(() => {
         if (!controller.signal.aborted) setRows([])
       })
@@ -48,8 +52,47 @@ export default function Transfers() {
 
   const reload = () => setReloadKey((n) => n + 1)
 
+  // Supervisor to supervisor: what this branch asked of others, and what
+  // others asked of it, still waiting to be sent.
+  const isSupervisor = user?.role === 'SUPERVISOR'
+  const [asking, setAsking] = useState(false)
+  const [sending, setSending] = useState<StockRequest | null>(null)
+  const [branchRequests, setBranchRequests] = useState<StockRequest[]>([])
+  useEffect(() => {
+    if (!isSupervisor) return
+    const controller = new AbortController()
+    api<{ requests: StockRequest[] }>('/api/requests?status=PENDING', { signal: controller.signal })
+      .then((payload) =>
+        setBranchRequests(
+          (payload.requests ?? []).filter(
+            (request) =>
+              request.requestedBy.role === 'SUPERVISOR' &&
+              request.requestedTo?.role === 'SUPERVISOR' &&
+              (askedOfBranch(request, user) || request.requestedBy.branch?.id === user?.branch?.id),
+          ),
+        ),
+      )
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [isSupervisor, reloadKey, user])
+
+  async function rejectAsk(request: StockRequest) {
+    const reason = window.prompt(t('tr.rejectReason'))
+    if (!reason?.trim()) return
+    try {
+      await api(`/api/requests/${request.id}/reject`, { method: 'PATCH', body: { rejectionReason: reason.trim() } })
+      push('success', t('toast.rejectedRef', { ref: requestRef(request) }))
+      reload()
+    } catch (caught) {
+      push('error', caught instanceof Error ? caught.message : 'Could not save it.')
+    }
+  }
+
+  // The receiving branch's supervisor counts it in; the Owner only for a
+  // branch with no supervisor (the store).
   const canReceive = (row: TransferRow) =>
-    row.status === 'IN_TRANSIT' && (isOwner || row.toLocation.id === user?.branch?.id)
+    row.status === 'IN_TRANSIT' &&
+    (isOwner ? (row.toLocation._count?.users ?? 0) === 0 : row.toLocation.id === user?.branch?.id)
 
   async function receive(row: TransferRow) {
     if (!window.confirm(t('tr.receiveConfirm', { from: row.fromLocation.name }))) return
@@ -81,8 +124,72 @@ export default function Transfers() {
               + {t('tr.new')}
             </button>
           </div>
+        ) : isSupervisor ? (
+          <div className={base.headActions}>
+            <button type="button" className={base.primary} onClick={() => setAsking(true)}>
+              + {t('tr.askBranch')}
+            </button>
+          </div>
         ) : null}
       </header>
+
+      {isSupervisor && branchRequests.length > 0 ? (
+        <Card title={t('tr.branchRequests')} subtitle={t('tr.branchRequestsNote')}>
+          <div className={base.scroll}>
+            <table className={base.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t('req.date')}</th>
+                  <th scope="col">{t('tr.route')}</th>
+                  <th scope="col">{t('tr.items')}</th>
+                  <th scope="col" className={base.actionsCol}>
+                    {t('common.actions')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchRequests.map((request) => (
+                  <tr key={request.id}>
+                    <td data-label={t('req.date')}>
+                      {shortDate(request.createdAt)}
+                      <em className={base.sub}>{requestRef(request)}</em>
+                    </td>
+                    <td data-label={t('tr.route')} className={base.strong}>
+                      {request.requestedTo?.branch?.name ?? '—'} → {request.requestedBy.branch?.name ?? '—'}
+                      <em className={base.sub}>{t('tr.forRequest', { name: request.requestedBy.name })}</em>
+                    </td>
+                    <td data-label={t('tr.items')} style={{ whiteSpace: 'normal' }}>
+                      {request.items.map((item) => (
+                        <div key={item.id}>
+                          {count(item.quantity)} × {item.product.name}
+                        </div>
+                      ))}
+                    </td>
+                    <td className={base.actionsCol}>
+                      {askedOfBranch(request, user) ? (
+                        <>
+                          <button type="button" className={base.primary} onClick={() => setSending(request)}>
+                            {t('dlg.approveAndTransfer')}
+                          </button>{' '}
+                          {request.items.every((item) => item.approvedQuantity === null) ? (
+                            <button type="button" className={base.secondary} onClick={() => void rejectAsk(request)}>
+                              {t('appr.reject')}
+                            </button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className={base.sub}>
+                          {t('tr.waitingFor', { branch: request.requestedTo?.branch?.name ?? '—' })}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className={styles.filters}>
@@ -173,6 +280,31 @@ export default function Transfers() {
           onClose={() => setCreating(false)}
           onDone={(message) => {
             setCreating(false)
+            push('success', message)
+            reload()
+          }}
+        />
+      ) : null}
+
+      {asking ? (
+        <NewRequestDialog
+          kind="RESTOCK"
+          branchOnly
+          onClose={() => setAsking(false)}
+          onDone={(message) => {
+            setAsking(false)
+            push('success', message)
+            reload()
+          }}
+        />
+      ) : null}
+
+      {sending ? (
+        <ApproveRequestDialog
+          request={sending}
+          onClose={() => setSending(null)}
+          onDone={(message) => {
+            setSending(null)
             push('success', message)
             reload()
           }}

@@ -4,9 +4,19 @@
 
 const TOKEN_KEY = 'sim.token'
 
+// The sign-in lives only as long as the browser (or installed app) stays
+// open: closing it means the password is asked again, so a shared or lost
+// device does not stay signed in. A token kept by older versions is dropped.
+try {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem('sim.profile')
+} catch {
+  // Storage blocked: nothing was kept there either.
+}
+
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY)
+    return sessionStorage.getItem(TOKEN_KEY)
   } catch {
     // Private windows and blocked site data both throw here.
     return null
@@ -15,8 +25,8 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null) {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
+    if (token) sessionStorage.setItem(TOKEN_KEY, token)
+    else sessionStorage.removeItem(TOKEN_KEY)
   } catch {
     // Not fatal: the session simply will not survive a reload.
   }

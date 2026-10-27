@@ -288,6 +288,14 @@ export async function setMainStock(
     throw new Error("BRANCH_INACTIVE");
   }
 
+  // A main store sells nothing, so its salespeople must move first.
+  if (isMainStock && !branch.isMainStock) {
+    const sellers = await prisma.user.count({
+      where: { branchId: id, role: "SALES", isActive: true },
+    });
+    if (sellers > 0) throw new Error("BRANCH_HAS_SELLERS");
+  }
+
   const updated = await prisma.stockLocation.update({
     where: { id },
     data: { isMainStock },

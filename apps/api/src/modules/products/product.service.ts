@@ -75,6 +75,10 @@ export async function createProduct(data: CreateProductInput) {
     throw new Error("DENOMINATION_REQUIRED");
   }
 
+  if (category === "PHONE" && (!data.model?.trim() || !data.storage?.trim())) {
+    throw new Error("PHONE_DETAILS_REQUIRED");
+  }
+
   const parts = {
     category,
     typePath: path,
@@ -87,9 +91,12 @@ export async function createProduct(data: CreateProductInput) {
   const name = data.name?.trim() || buildName(parts);
   const base = buildSku(parts);
 
-  // Airtime sells by the carta at its fixed price, so the price is not asked for.
+  // The Owner sets the selling price. For airtime with none given, the
+  // standard 5%-off carta price of its value is used.
   const price =
-    category === "AIRTIME_VOUCHER" ? cartaPrice(data.denomination!) : data.price;
+    category === "AIRTIME_VOUCHER" && !(data.price > 0)
+      ? cartaPrice(data.denomination!)
+      : data.price;
 
   // freeSku() checks the SKU is free, then we insert it afterwards — those
   // two steps are not atomic, so two requests can both see the same code
@@ -107,6 +114,7 @@ export async function createProduct(data: CreateProductInput) {
             name,
             description: data.description,
             price,
+            costPrice: data.costPrice ?? null,
             category: category as never,
             typeId: data.typeId,
             categoryId: chosen.categoryId,
@@ -188,8 +196,20 @@ export async function getProducts() {
       simDetails: true,
       voucherDetails: true,
       phoneDetails: true,
-      type: { select: { id: true, name: true, parentId: true } },
+      type: {
+        select: {
+          id: true,
+          name: true,
+          parentId: true,
+          parent: { select: { id: true, name: true } },
+        },
+      },
       productCategory: { select: { id: true, name: true, kind: true } },
+
+      // Prices the Owner set for particular branches.
+      branchPrices: {
+        select: { locationId: true, price: true, location: { select: { name: true } } },
+      },
 
       inventoryBalances: {
         select: {
@@ -244,6 +264,7 @@ export async function updateProduct(id: string, data: UpdateProductInput) {
           ? { description: data.description?.trim() || null }
           : {}),
         ...(price !== undefined ? { price } : {}),
+        ...(data.costPrice !== undefined ? { costPrice: data.costPrice } : {}),
       },
     });
 
@@ -293,7 +314,7 @@ export async function deleteProduct(
 ): Promise<"deleted" | "archived"> {
   await liveProduct(id);
 
-  const [stock, held] = await Promise.all([
+  const [stock, held, shares] = await Promise.all([
     prisma.inventoryBalance.aggregate({
       where: { productId: id },
       _sum: { quantity: true },
@@ -302,9 +323,17 @@ export async function deleteProduct(
       where: { productId: id },
       _sum: { quantity: true },
     }),
+    prisma.branchStock.aggregate({
+      where: { productId: id },
+      _sum: { quantity: true },
+    }),
   ]);
 
-  if ((stock._sum.quantity ?? 0) !== 0 || (held._sum.quantity ?? 0) !== 0) {
+  if (
+    (stock._sum.quantity ?? 0) !== 0 ||
+    (held._sum.quantity ?? 0) !== 0 ||
+    (shares._sum.quantity ?? 0) !== 0
+  ) {
     throw new Error("PRODUCT_HOLDS_STOCK");
   }
 

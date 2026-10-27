@@ -21,6 +21,11 @@ import {
   approveSale,
   rejectSale,
   deleteSale,
+  updateSale,
+  allowSaleEdits,
+  requestSaleEdit,
+  editDayTotals,
+  requestDayEdit,
 } from "./sale.service.js";
 
 type SaleParams = {
@@ -62,6 +67,11 @@ function handleSaleError(
         message: "You are not assigned to a branch",
       });
 
+    case "MAIN_STORE_NO_SALES":
+      return reply.status(400).send({
+        message: "The main store only holds stock. Sales are recorded at a branch.",
+      });
+
     case "INVALID_PRODUCT":
       return reply.status(400).send({
         message: "One or more products are unknown or inactive",
@@ -75,12 +85,19 @@ function handleSaleError(
           .shortages,
       });
 
-    case "NOT_IN_YOUR_HOLDING":
+    case "NOT_IN_YOUR_HOLDING": {
+      // Say which item and how many they hold: "25 Airtime Voucher: you hold
+      // 3, this sale has 5".
+      const shortages =
+        (error as Error & { shortages?: { name: string; requested: number; available: number }[] }).shortages ?? [];
+      const detail = shortages
+        .map((row) => `${row.name}: you hold ${row.available}, this sale has ${row.requested}`)
+        .join("; ");
       return reply.status(409).send({
-        message:
-          "You were not issued that much. Ask your supervisor to issue more",
-        shortages: (error as Error & { shortages?: unknown }).shortages,
+        message: `You were not issued that much. ${detail ? `${detail}. ` : ""}Lower it, or ask your supervisor to issue more`,
+        shortages,
       });
+    }
 
     case "SERIAL_COUNT_MISMATCH":
       return reply.status(400).send({
@@ -107,6 +124,14 @@ function handleSaleError(
         message:
           "Not enough individual SIM or phone units are in stock at this branch",
       });
+
+    case "EDIT_LOCKED":
+      return reply.status(409).send({
+        message: "A sale can only be changed on its own day. Ask the Owner to allow it.",
+      });
+
+    case "INVALID_DAY":
+      return reply.status(400).send({ message: "Choose the day" });
 
     case "SALE_NOT_FOUND":
       return reply.status(404).send({
@@ -325,6 +350,89 @@ export async function deleteSaleController(
     return reply.send({
       message: "Draft sale deleted",
     });
+  } catch (error) {
+    return handleSaleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+/** A salesperson corrects their own sale (its day, or while the Owner allows it). */
+export async function updateSaleController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const result = createSaleSchema.safeParse(request.body);
+  if (!result.success) {
+    return reply.status(400).send({ message: "Invalid sale data", errors: result.error.flatten() });
+  }
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    return reply.send({ message: "Sale updated", sale: await updateSale(request.params.id, result.data, viewer) });
+  } catch (error) {
+    return handleSaleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+/** The Owner lets a salesperson correct one past day's sales, until tonight. */
+export async function allowSaleEditsController(
+  request: FastifyRequest<{ Body: { salespersonId?: string; day?: string } }>,
+  reply: FastifyReply,
+) {
+  const { salespersonId, day } = request.body ?? {};
+  if (!salespersonId || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return reply.status(400).send({ message: "Choose the salesperson and the day" });
+  }
+  try {
+    return reply.send(await allowSaleEdits({ salespersonId, day }));
+  } catch (error) {
+    return handleSaleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+/** A salesperson asks the Owner to allow a correction. */
+export async function requestDayEditController(
+  request: FastifyRequest<{ Body: { day?: string } }>,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  const day = request.body?.day ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return reply.status(400).send({ message: "Choose the day" });
+  try {
+    return reply.send(await requestDayEdit(day, viewer));
+  } catch (error) {
+    return handleSaleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+export async function requestSaleEditController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    return reply.send(await requestSaleEdit(request.params.id, viewer));
+  } catch (error) {
+    return handleSaleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+export async function dayTotalsController(
+  request: FastifyRequest<{ Body: { day?: string; totals?: { productId: string; quantity: number }[] } }>,
+  reply: FastifyReply,
+) {
+  const day = request.body?.day ?? "";
+  const totals = (request.body?.totals ?? []).filter(
+    (row) => typeof row?.productId === "string" && Number.isInteger(row?.quantity) && row.quantity >= 0,
+  );
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || totals.length === 0) {
+    return reply.status(400).send({ message: "Choose the day and the totals" });
+  }
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    return reply.send({ message: "Day updated", ...(await editDayTotals(viewer, day, totals)) });
   } catch (error) {
     return handleSaleError(error, reply) ?? Promise.reject(error);
   }

@@ -1,6 +1,7 @@
 import { Prisma } from "database";
 
 import { prisma } from "../../plugins/prisma.js";
+import { deductedIn } from "../deductions/deduction.service.js";
 
 /**
  * Payroll: monthly salaries, commission on sales, and what was paid.
@@ -180,13 +181,15 @@ const zero = (): Record<Category, Figures> =>
 export async function getMonth(month: string) {
   monthRange(month);
 
-  const [employees, commission, payments] = await Promise.all([
+  const [employees, commission, payments, deducted, carried] = await Promise.all([
     getEmployees(),
     commissionFor(month),
     prisma.payrollPayment.findMany({
       where: { month },
       include: { paidBy: { select: { name: true } } },
     }),
+    deductedIn(month),
+    carriedInto(month),
   ]);
 
   const rows = employees
@@ -211,12 +214,17 @@ export async function getMonth(month: string) {
         byCategory,
         salary: payment ? payment.salary.toNumber() : salary,
         commission: payment ? payment.commission.toNumber() : earned,
+        // What they recorded on the Deductions page this month, plus what
+        // their last salary could not cover.
+        deducted: (deducted.get(employee.id) ?? 0) + (carried.get(employee.id) ?? 0),
+        carriedIn: carried.get(employee.id) ?? 0,
         payment: payment
           ? {
               id: payment.id,
               bonus: payment.bonus.toNumber(),
               deduction: payment.deduction.toNumber(),
               net: payment.net.toNumber(),
+              carriedOver: payment.carriedOver.toNumber(),
               note: payment.note,
               paidAt: payment.paidAt.toISOString(),
               paidBy: payment.paidBy.name,
@@ -246,6 +254,41 @@ export async function getMonth(month: string) {
   return { month, rows, totals };
 }
 
+/**
+ * Pay never goes below 0: deduction it cannot cover is carried over and
+ * added to the next salary's deduction.
+ */
+function settle(gross: number, deduction: number) {
+  const left = Math.round((gross - deduction) * 100) / 100;
+  return left >= 0 ? { net: left, carriedOver: 0 } : { net: 0, carriedOver: -left };
+}
+
+/**
+ * What each person's last salary before this month could not cover. Only the
+ * latest earlier payment counts: anything older was already carried into it.
+ */
+async function carriedInto(month: string) {
+  const earlier = await prisma.payrollPayment.findMany({
+    where: { month: { lt: month } },
+    select: { userId: true, carriedOver: true },
+    orderBy: { month: "desc" },
+  });
+
+  const carried = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const row of earlier) {
+    if (seen.has(row.userId)) continue;
+    seen.add(row.userId);
+    if (row.carriedOver.toNumber() > 0) carried.set(row.userId, row.carriedOver.toNumber());
+  }
+  return carried;
+}
+
+// A calendar day as midday local time, so no time zone moves it a day.
+function paidDate(day: string) {
+  return new Date(`${day}T12:00:00`);
+}
+
 export async function pay(
   paidById: string,
   data: {
@@ -257,6 +300,8 @@ export async function pay(
     bonus: number;
     deduction: number;
     note?: string;
+    /** The day it was paid; today when not given. */
+    paidOn?: string;
   },
 ) {
   const { rows } = await getMonth(data.month);
@@ -267,8 +312,7 @@ export async function pay(
 
   const salary = data.salary ?? row.salary;
   const commission = data.commission ?? row.commission;
-  const net = salary + commission + data.bonus - data.deduction;
-  if (net < 0) throw new Error("NEGATIVE_NET");
+  const { net, carriedOver } = settle(salary + commission + data.bonus, data.deduction);
 
   try {
     return await prisma.payrollPayment.create({
@@ -280,8 +324,10 @@ export async function pay(
         bonus: new Prisma.Decimal(data.bonus),
         deduction: new Prisma.Decimal(data.deduction),
         net: new Prisma.Decimal(net),
+        carriedOver: new Prisma.Decimal(carriedOver),
         note: data.note?.trim() || null,
         paidById,
+        ...(data.paidOn ? { paidAt: paidDate(data.paidOn) } : {}),
       },
     });
   } catch (error) {
@@ -305,10 +351,13 @@ export async function updatePayment(
     bonus: number;
     deduction: number;
     note?: string;
+    paidOn?: string;
   },
 ) {
-  const net = data.salary + data.commission + data.bonus - data.deduction;
-  if (net < 0) throw new Error("NEGATIVE_NET");
+  const { net, carriedOver } = settle(
+    data.salary + data.commission + data.bonus,
+    data.deduction,
+  );
 
   const existing = await prisma.payrollPayment.findUnique({ where: { id }, select: { id: true } });
   if (!existing) throw new Error("NOT_FOUND");
@@ -321,7 +370,9 @@ export async function updatePayment(
       bonus: new Prisma.Decimal(data.bonus),
       deduction: new Prisma.Decimal(data.deduction),
       net: new Prisma.Decimal(net),
+      carriedOver: new Prisma.Decimal(carriedOver),
       note: data.note?.trim() || null,
+      ...(data.paidOn ? { paidAt: paidDate(data.paidOn) } : {}),
     },
   });
 }
@@ -339,17 +390,21 @@ export async function undoPayment(id: string) {
 /** A commission line's item: one of the Owner's categories, or National ID. */
 export const NATIONAL_ID = "NATIONAL_ID";
 
+/** What the Owner gives for one item: the commission, not the quantity. */
 type Line = {
   item: string;
-  quantity: number;
-  unitPrice: number;
-  /** Airtime only: a percent of quantity x value. Left out, the commission
-   * is quantity x value itself. */
-  percent?: number | null;
+  /** Birr per item sold, or a percent of the sales when percent is set. */
+  rate: number;
+  percent?: boolean;
 };
 
-type PricedLine = Line & {
+type PricedLine = {
+  quantity: number;
+  unitPrice: number;
+  percent: number | null;
   amount: number;
+  periodStart: Date;
+  periodEnd: Date;
   category: "SIM_CARD" | "PHONE" | "AIRTIME_VOUCHER" | "OTHER";
   categoryId: string | null;
   label: string;
@@ -366,6 +421,8 @@ const commissionInclude = {
       quantity: true,
       unitPrice: true,
       percent: true,
+      periodStart: true,
+      periodEnd: true,
       product: { select: { id: true, name: true, sku: true } },
     },
   },
@@ -390,33 +447,206 @@ export async function listCommissions(month: string) {
   });
 }
 
-/**
- * Each line's commission: quantity x price x percent. The item is one of the
- * Owner's categories (built-in or added) or National ID; its name is kept on
- * the line so the report reads the same after a rename.
- */
-async function price(lines: Line[]): Promise<PricedLine[]> {
-  if (lines.length === 0) throw new Error("NO_LINES");
+/** A paid period that overlaps the dates asked about. */
+type Overlap = { from: Date; to: Date };
+type Sold = { quantity: number; sales: number; paid: Overlap | null };
 
-  const categories = await prisma.category.findMany({
-    where: { id: { in: lines.map((line) => line.item) } },
-    select: { id: true, name: true, kind: true },
+/** "2026-10-01" .. "2026-10-15" as [start of the 1st, start of the 16th). */
+export function dayRange(from: string, to: string) {
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    throw new Error("BAD_DATES");
+  }
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+/**
+ * Commission already paid to each person for each item over dates that
+ * overlap these: "userId|item" -> that paid period. One payment can be left
+ * out, so editing it does not count against itself.
+ */
+async function paidOverlapping(userIds: string[], start: Date, end: Date, excludePaymentId?: string) {
+  const lines = await prisma.commissionLine.findMany({
+    where: {
+      periodStart: { lt: end },
+      periodEnd: { gt: start },
+      payment: {
+        userId: { in: userIds },
+        ...(excludePaymentId ? { id: { not: excludePaymentId } } : {}),
+      },
+    },
+    select: {
+      categoryId: true,
+      label: true,
+      periodStart: true,
+      periodEnd: true,
+      payment: { select: { userId: true } },
+    },
   });
 
-  return lines.map((line) => {
-    const base = line.quantity * line.unitPrice;
-    const amount = Math.round((line.percent ? (base * line.percent) / 100 : base) * 100) / 100;
-    if (amount <= 0) throw new Error("ZERO_COMMISSION");
+  const paid = new Map<string, Overlap>();
+  for (const line of lines) {
+    const item = line.categoryId ?? (line.label === "National ID" ? NATIONAL_ID : null);
+    if (!item || !line.periodStart || !line.periodEnd) continue;
+    // The last day paid is the day before the period's end.
+    const to = new Date(line.periodEnd.getTime() - 1);
+    paid.set(`${line.payment.userId}|${item}`, { from: line.periodStart, to });
+  }
+  return paid;
+}
+
+/**
+ * What each person sold between two days, per item: each of the Owner's
+ * categories by its id, and National ID work by "NATIONAL_ID". Counted from
+ * the sales and records themselves, so a commission's quantity is never typed
+ * in. Where commission was already paid for some of those days, it says so,
+ * so the same sales are not paid twice.
+ */
+export async function soldBy(
+  userIds: string[],
+  dates: { from: string; to: string },
+  options: { excludePaymentId?: string } = {},
+) {
+  const { start, end } = dayRange(dates.from, dates.to);
+
+  // A supervisor sells nothing themselves: their commission is on what the
+  // whole branch sold, every salesperson's sales added up.
+  const supervisors = await prisma.user.findMany({
+    where: { id: { in: userIds }, role: "SUPERVISOR", branchId: { not: null } },
+    select: { id: true, branchId: true },
+  });
+  const branchOf = new Map(supervisors.map((row) => [row.id, row.branchId!]));
+  const supervisorsAt = new Map<string, string[]>();
+  for (const [id, branchId] of branchOf) supervisorsAt.set(branchId, [...(supervisorsAt.get(branchId) ?? []), id]);
+  const branchIds = [...supervisorsAt.keys()];
+
+  const [items, nid, paid] = await Promise.all([
+    prisma.saleItem.findMany({
+      where: {
+        sale: {
+          status: "APPROVED",
+          saleDate: { gte: start, lt: end },
+          OR: [{ salespersonId: { in: userIds } }, ...(branchIds.length ? [{ locationId: { in: branchIds } }] : [])],
+        },
+      },
+      select: {
+        quantity: true,
+        lineTotal: true,
+        product: { select: { categoryId: true } },
+        sale: { select: { salespersonId: true, locationId: true } },
+      },
+    }),
+    // National ID sold: each customer registered (original or copy) is one,
+    // at the price charged. The same records the daily sales report counts.
+    prisma.nationalIdOrder.findMany({
+      where: {
+        createdAt: { gte: start, lt: end },
+        OR: [{ recordedById: { in: userIds } }, ...(branchIds.length ? [{ locationId: { in: branchIds } }] : [])],
+      },
+      select: { recordedById: true, locationId: true, price: true },
+    }),
+    paidOverlapping(userIds, start, end, options.excludePaymentId),
+  ]);
+
+  const sold = new Map<string, Map<string, Sold>>();
+  const cell = (userId: string, item: string) => {
+    const person = sold.get(userId) ?? new Map<string, Sold>();
+    const found = person.get(item) ?? { quantity: 0, sales: 0, paid: paid.get(`${userId}|${item}`) ?? null };
+    person.set(item, found);
+    sold.set(userId, person);
+    return found;
+  };
+
+  for (const key of paid.keys()) {
+    const [userId, item] = key.split("|");
+    cell(userId, item);
+  }
+
+  // Who a sale counts for: the seller (if asked about) and the supervisors
+  // of the branch it was made at.
+  const countFor = (sellerId: string, locationId: string) => {
+    const people = new Set<string>(supervisorsAt.get(locationId) ?? []);
+    if (userIds.includes(sellerId) && !branchOf.has(sellerId)) people.add(sellerId);
+    return [...people];
+  };
+
+  for (const item of items) {
+    if (!item.product.categoryId) continue;
+    for (const userId of countFor(item.sale.salespersonId, item.sale.locationId)) {
+      const found = cell(userId, item.product.categoryId);
+      found.quantity += item.quantity;
+      found.sales += item.lineTotal.toNumber();
+    }
+  }
+
+  for (const row of nid) {
+    for (const userId of countFor(row.recordedById, row.locationId)) {
+      const found = cell(userId, NATIONAL_ID);
+      found.quantity += 1;
+      found.sales += row.price.toNumber();
+    }
+  }
+
+  return { sold, start, end };
+}
+
+/**
+ * One person's commission lines for the chosen days: quantity is what they
+ * sold of each item, and the commission is that times the rate, or the rate
+ * percent of the sales (airtime). An item they sold none of earns nothing
+ * and is left out; an item already paid for any of those days is refused.
+ * Each line keeps the days it paid for, and the item's name so the report
+ * reads the same after a rename.
+ */
+async function price(
+  userId: string,
+  dates: { from: string; to: string },
+  lines: Line[],
+  options: { excludePaymentId?: string } = {},
+): Promise<PricedLine[]> {
+  if (lines.length === 0) throw new Error("NO_LINES");
+
+  const [{ sold, start, end }, categories] = await Promise.all([
+    soldBy([userId], dates, options),
+    prisma.category.findMany({
+      where: { id: { in: lines.map((line) => line.item) } },
+      select: { id: true, name: true, kind: true },
+    }),
+  ]);
+  const mine = sold.get(userId) ?? new Map<string, Sold>();
+
+  const priced: PricedLine[] = [];
+  for (const line of lines) {
+    const { quantity, sales, paid } = mine.get(line.item) ?? { quantity: 0, sales: 0, paid: null };
+    if (paid) throw new Error("ALREADY_PAID_DAYS");
+
+    const raw = line.percent ? (sales * line.rate) / 100 : quantity * line.rate;
+    const amount = Math.round(raw * 100) / 100;
+    if (quantity === 0 || amount <= 0) continue;
+
+    const figures = {
+      quantity,
+      // For a percent line, the average price the items sold at.
+      unitPrice: line.percent ? Math.round((sales / quantity) * 100) / 100 : line.rate,
+      percent: line.percent ? line.rate : null,
+      amount,
+      periodStart: start,
+      periodEnd: end,
+    };
 
     if (line.item === NATIONAL_ID) {
-      return { ...line, amount, category: "OTHER" as const, categoryId: null, label: "National ID" };
+      priced.push({ ...figures, category: "OTHER", categoryId: null, label: "National ID" });
+      continue;
     }
 
     const category = categories.find((entry) => entry.id === line.item);
     if (!category) throw new Error("ITEM_NOT_FOUND");
+    priced.push({ ...figures, category: category.kind, categoryId: category.id, label: category.name });
+  }
 
-    return { ...line, amount, category: category.kind, categoryId: category.id, label: category.name };
-  });
+  return priced;
 }
 
 const totalOf = (lines: PricedLine[]) =>
@@ -430,47 +660,81 @@ const lineData = (line: PricedLine) => ({
   unitPrice: new Prisma.Decimal(line.unitPrice),
   percent: line.percent ? new Prisma.Decimal(line.percent) : null,
   amount: new Prisma.Decimal(line.amount),
+  periodStart: line.periodStart,
+  periodEnd: line.periodEnd,
 });
 
+/**
+ * Pays the same commission rates to one or more people. Each gets their own
+ * payment, priced from what they themselves sold; anyone who sold none of
+ * the items is skipped and named back.
+ */
 export async function payCommission(
   paidById: string,
-  data: { userId: string; month: string; lines: Line[]; note?: string },
+  data: {
+    userIds: string[];
+    month: string;
+    /** The days whose sales are paid for: "2026-10-01" .. "2026-10-15". */
+    from: string;
+    to: string;
+    lines: Line[];
+    note?: string;
+    paidOn?: string;
+  },
 ) {
   monthRange(data.month);
 
-  const user = await prisma.user.findUnique({
-    where: { id: data.userId },
-    select: { role: true },
+  const people = await prisma.user.findMany({
+    where: { id: { in: data.userIds }, role: { not: "OWNER" } },
+    select: { id: true, name: true },
   });
-  if (!user || user.role === "OWNER") throw new Error("NOT_FOUND");
+  if (people.length !== new Set(data.userIds).size) throw new Error("NOT_FOUND");
 
-  const lines = await price(data.lines);
+  const priced = await Promise.all(
+    people.map(async (person) => ({ person, lines: await price(person.id, data, data.lines) })),
+  );
+  const payable = priced.filter((entry) => entry.lines.length > 0);
+  if (payable.length === 0) throw new Error("NOTHING_SOLD");
 
-  return prisma.commissionPayment.create({
-    data: {
-      userId: data.userId,
-      month: data.month,
-      total: new Prisma.Decimal(totalOf(lines)),
-      note: data.note?.trim() || null,
-      paidById,
-      lines: { create: lines.map(lineData) },
-    },
-    include: commissionInclude,
-  });
+  const commissions = await prisma.$transaction(
+    payable.map(({ person, lines }) =>
+      prisma.commissionPayment.create({
+        data: {
+          userId: person.id,
+          month: data.month,
+          total: new Prisma.Decimal(totalOf(lines)),
+          note: data.note?.trim() || null,
+          paidById,
+          ...(data.paidOn ? { paidAt: paidDate(data.paidOn) } : {}),
+          lines: { create: lines.map(lineData) },
+        },
+        include: commissionInclude,
+      }),
+    ),
+  );
+
+  return {
+    commissions,
+    skipped: priced.filter((entry) => entry.lines.length === 0).map((entry) => entry.person.name),
+  };
 }
 
-/** Replaces the lines of a commission payment. */
+/** Replaces the lines of a commission payment, priced again from the sales. */
 export async function updateCommission(
   id: string,
-  data: { lines: Line[]; note?: string },
+  data: { from: string; to: string; lines: Line[]; note?: string; paidOn?: string },
 ) {
-  const lines = await price(data.lines);
+  const existing = await prisma.commissionPayment.findUnique({
+    where: { id },
+    select: { userId: true },
+  });
+  if (!existing) throw new Error("NOT_FOUND");
+
+  const lines = await price(existing.userId, data, data.lines, { excludePaymentId: id });
+  if (lines.length === 0) throw new Error("NOTHING_SOLD");
   const total = totalOf(lines);
 
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.commissionPayment.findUnique({ where: { id }, select: { id: true } });
-    if (!existing) throw new Error("NOT_FOUND");
-
     await tx.commissionLine.deleteMany({ where: { paymentId: id } });
 
     return tx.commissionPayment.update({
@@ -478,6 +742,7 @@ export async function updateCommission(
       data: {
         total: new Prisma.Decimal(total),
         note: data.note?.trim() || null,
+        ...(data.paidOn ? { paidAt: paidDate(data.paidOn) } : {}),
         lines: { create: lines.map(lineData) },
       },
       include: commissionInclude,

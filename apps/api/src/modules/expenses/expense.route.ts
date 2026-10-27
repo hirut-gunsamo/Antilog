@@ -6,8 +6,10 @@ import { authenticate, authorize, loadViewer } from "../../middleware/auth.js";
 import { prisma } from "../../plugins/prisma.js";
 
 /**
- * Expenses: money a branch paid out, recorded by its supervisor with a
- * reason. The Owner reads them as a report across branches.
+ * Expenses: money a branch paid out, with a reason. A salesperson records
+ * what they paid from their own sales cash; a supervisor records for
+ * themselves or for one of their salespeople. It comes off that person's
+ * cash on hand, not their salary. The Owner reads them across branches.
  */
 
 const createSchema = z.object({
@@ -16,15 +18,18 @@ const createSchema = z.object({
   note: z.string().max(500).optional(),
   // "2026-09-30"; defaults to today.
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Supervisor only: the salesperson whose cash paid it. Defaults to them.
+  spentById: z.string().min(1).optional(),
 });
 
 const day = (value: string) => new Date(`${value}T00:00:00`);
 
 export async function expenseRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
-  app.addHook("preHandler", authorize(UserRole.OWNER, UserRole.SUPERVISOR));
+  app.addHook("preHandler", authorize(UserRole.OWNER, UserRole.SUPERVISOR, UserRole.SALES));
 
-  // The report: a supervisor sees their branch, the Owner every branch.
+  // The report: a salesperson sees their own, a supervisor their branch,
+  // the Owner every branch.
   app.get<{ Querystring: { from?: string; to?: string; branchId?: string } }>(
     "/",
     async (request, reply) => {
@@ -45,10 +50,12 @@ export async function expenseRoutes(app: FastifyInstance) {
         where: {
           expenseDate: { gte: from, lt: to },
           ...(branchId ? { locationId: branchId } : {}),
+          ...(viewer.role === "SALES" ? { spentById: viewer.userId } : {}),
         },
         include: {
           location: { select: { id: true, name: true } },
           recordedBy: { select: { id: true, name: true } },
+          spentBy: { select: { id: true, name: true } },
         },
         orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
       });
@@ -86,18 +93,30 @@ export async function expenseRoutes(app: FastifyInstance) {
           createdAt: row.createdAt.toISOString(),
           branch: row.location,
           recordedBy: row.recordedBy,
+          spentBy: row.spentBy,
         })),
       });
     },
   );
 
-  // A supervisor records their branch's expenses.
-  app.post("/", { preHandler: [authorize(UserRole.SUPERVISOR)] }, async (request, reply) => {
+  // A salesperson records their own; a supervisor their own or a
+  // salesperson's in their branch.
+  app.post("/", { preHandler: [authorize(UserRole.SUPERVISOR, UserRole.SALES)] }, async (request, reply) => {
     const viewer = await loadViewer(request);
     if (!viewer?.branchId) return reply.status(403).send({ message: "You need a branch to record expenses" });
 
     const result = createSchema.safeParse(request.body);
     if (!result.success) return reply.status(400).send({ message: "Enter the amount and the reason" });
+
+    let spentById = viewer.userId;
+    if (viewer.role === "SUPERVISOR" && result.data.spentById && result.data.spentById !== viewer.userId) {
+      const person = await prisma.user.findFirst({
+        where: { id: result.data.spentById, branchId: viewer.branchId, isActive: true },
+        select: { id: true },
+      });
+      if (!person) return reply.status(400).send({ message: "Choose a salesperson in your branch" });
+      spentById = person.id;
+    }
 
     const expense = await prisma.expense.create({
       data: {
@@ -107,6 +126,7 @@ export async function expenseRoutes(app: FastifyInstance) {
         note: result.data.note?.trim() || null,
         expenseDate: result.data.date ? day(result.data.date) : new Date(),
         recordedById: viewer.userId,
+        spentById,
       },
     });
 

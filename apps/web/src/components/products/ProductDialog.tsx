@@ -6,6 +6,7 @@ import { useT } from '../../lib/i18n'
 import type { ProductRow, TypeNode } from '../../lib/types'
 import { CategoryDialog } from '../categories/CategoryDialog'
 import { TypeDialog } from './TypeDialog'
+import { valueFromName } from './voucherValue'
 import styles from '../inventory/Panel.module.css'
 
 /**
@@ -36,15 +37,12 @@ export function ProductDialog({
   const category = categories.find((entry) => entry.id === validCategoryId)?.kind ?? 'OTHER'
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
+  const [costPrice, setCostPrice] = useState('')
   const [description, setDescription] = useState('')
-
-  const [denomination, setDenomination] = useState('')
-  const [phoneModel, setPhoneModel] = useState('')
+  // A phone's storage and RAM, e.g. "64/4".
   const [storage, setStorage] = useState('')
-  const [color, setColor] = useState('')
 
   const [typeId, setTypeId] = useState('')
-  const [modelId, setModelId] = useState('')
 
   const [types, setTypes] = useState<TypeNode[] | null>(null)
   const [typesReloadKey, setTypesReloadKey] = useState(0)
@@ -98,12 +96,6 @@ export function ProductDialog({
 
   const selectedBrand =
     topLevel.find((node) => node.id === validTypeId) ?? null
-  const models = (selectedBrand?.children ?? []).filter((node) => node.isActive)
-
-  const validModelId =
-    category === 'PHONE' && models.some((node) => node.id === modelId)
-      ? modelId
-      : ''
 
   // Deletes the chosen type after a confirm. The API refuses while products
   // or types under it still exist, and its message is shown as the error.
@@ -130,32 +122,30 @@ export function ProductDialog({
     // A type added under another category takes the form there with it.
     if (created.categoryId) setCategoryId(created.categoryId)
 
-    if (created.parentId) {
-      setTypeId(created.parentId)
-      setModelId(created.id)
-    } else {
-      setTypeId(created.id)
-      setModelId('')
-    }
+    setTypeId(created.parentId ?? created.id)
   }
 
   const priceValue = Number(price)
-  const denominationValue = Number(denomination)
+  const isAirtime = category === 'AIRTIME_VOUCHER'
+  // Airtime's card value comes from its name, e.g. "Voucher 10".
+  const denominationValue = valueFromName(name)
 
-  const nameValid = name.trim() === '' || name.trim().length >= 2
+  const isPhone = category === 'PHONE'
+  // A phone is known by its name ("Tecno Spark 40") and storage; airtime by
+  // the value in its name ("Voucher 10").
+  const nameValid = isAirtime
+    ? denominationValue !== null
+    : isPhone
+      ? name.trim().length >= 2
+      : name.trim() === '' || name.trim().length >= 2
 
   const categoryValid =
-    category === 'AIRTIME_VOUCHER'
-      ? denomination.trim() !== '' &&
-        Number.isInteger(denominationValue) &&
-        denominationValue > 0
-      : price.trim() !== '' && Number.isFinite(priceValue) && priceValue >= 0
+    price.trim() !== '' && Number.isFinite(priceValue) && priceValue >= 0
 
-  const valid = nameValid && categoryValid && validTypeId !== ''
+  const phoneValid = !isPhone || storage.trim() !== ''
 
-  // The deepest node chosen is what gets submitted: the model if one was
-  // picked, otherwise the brand (or the voucher kind, or the SIM type).
-  const effectiveTypeId = validModelId || validTypeId
+  const valid =
+    nameValid && categoryValid && phoneValid && validTypeId !== ''
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -165,16 +155,14 @@ export function ProductDialog({
     setError(null)
 
     const body = {
-      typeId: effectiveTypeId,
-      // A voucher's price is taken from its denomination and the value sent
-      // here is ignored, but the field is still required by the API.
-      price: category === 'AIRTIME_VOUCHER' ? denominationValue : priceValue,
+      typeId: validTypeId,
+      price: priceValue,
+      ...(costPrice.trim() !== '' ? { costPrice: Number(costPrice) } : {}),
       ...(name.trim() ? { name: name.trim() } : {}),
       ...(description.trim() ? { description: description.trim() } : {}),
-      ...(category === 'PHONE' && phoneModel.trim() ? { model: phoneModel.trim() } : {}),
-      ...(category === 'PHONE' && storage.trim() ? { storage: storage.trim() } : {}),
-      ...(category === 'PHONE' && color.trim() ? { color: color.trim() } : {}),
-      ...(category === 'AIRTIME_VOUCHER' ? { denomination: denominationValue } : {}),
+      // A phone's name is its model, e.g. "Tecno Spark 40".
+      ...(isPhone ? { model: name.trim(), storage: storage.trim() } : {}),
+      ...(isAirtime && denominationValue !== null ? { denomination: denominationValue } : {}),
     }
 
     try {
@@ -218,10 +206,7 @@ export function ProductDialog({
             <div className={styles.withAdd}>
               <select
                 value={validCategoryId}
-                onChange={(event) => {
-                  setCategoryId(event.target.value)
-                  setModelId('')
-                }}
+                onChange={(event) => setCategoryId(event.target.value)}
               >
                 {categories.map((option) => (
                   <option key={option.id} value={option.id}>
@@ -243,10 +228,7 @@ export function ProductDialog({
             <div className={styles.withAdd}>
               <select
                 value={validTypeId}
-                onChange={(event) => {
-                  setTypeId(event.target.value)
-                  setModelId('')
-                }}
+                onChange={(event) => setTypeId(event.target.value)}
                 disabled={topLevel.length === 0}
                 required
               >
@@ -280,121 +262,71 @@ export function ProductDialog({
             </div>
           </label>
 
-          {category === 'PHONE' && selectedBrand ? (
-            <label className={styles.field}>
-              <span>
-                {t('prod.type')}<em>{t('prod.optional')}</em>
-              </span>
-              <div className={styles.withAdd}>
-                <select
-                  value={validModelId}
-                  onChange={(event) => setModelId(event.target.value)}
-                >
-                  <option value="">{t('prod.modelNone')}</option>
-                  {models.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.name}
-                    </option>
-                  ))}
-                </select>
-                {validModelId ? (
-                  <button
-                    type="button"
-                    className={styles.deleteLine}
-                    onClick={() =>
-                      void deleteType(
-                        models.find((node) => node.id === validModelId) ?? null,
-                      )
-                    }
-                    disabled={busy}
-                  >
-                    {t('prod.delete')}
-                  </button>
-                ) : null}
-              </div>
-            </label>
-          ) : null}
-
           <label className={styles.field}>
             <span>
-              {t('prod.name')}<em>{t('prod.nameNote')}</em>
+              {t('prod.name')}
+              <em>{t(isAirtime || isPhone ? 'common.required' : 'prod.nameNote')}</em>
             </span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={150}
+              placeholder={isAirtime ? 'Voucher 10' : isPhone ? 'Tecno Spark 40' : undefined}
+              required={isAirtime || isPhone}
             />
           </label>
 
-          {category === 'AIRTIME_VOUCHER' ? (
-            <label className={styles.field}>
-              <span>
-                {t('prod.denomination')}<em>{t('common.required')}</em>
-              </span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="1"
-                step="1"
-                value={denomination}
-                onChange={(event) => setDenomination(event.target.value)}
-                required
-              />
-            </label>
-          ) : (
-            <label className={styles.field}>
-              <span>
-                {t('prod.price')}<em>{t('common.required')}</em>
-              </span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
-                required
-              />
-            </label>
-          )}
-
-          {category === 'PHONE' ? (
-            <>
-              <label className={styles.field}>
-                <span>
-                  {t('prod.model')}<em>{t('prod.optional')}</em>
-                </span>
-                <input
-                  value={phoneModel}
-                  onChange={(event) => setPhoneModel(event.target.value)}
-                  placeholder={t('prod.phModel')}
-                  maxLength={80}
-                />
-              </label>
-
-              <label className={styles.field}>
-                <span>
-                  {t('prod.storage')}<em>{t('prod.optional')}</em>
-                </span>
-                <input
-                  value={storage}
-                  onChange={(event) => setStorage(event.target.value)}
-                  maxLength={40}
-                />
-              </label>
-
-              <label className={styles.field}>
-                <span>
-                  {t('prod.color')}<em>{t('prod.optional')}</em>
-                </span>
-                <input
-                  value={color}
-                  onChange={(event) => setColor(event.target.value)}
-                  maxLength={40}
-                />
-              </label>
-            </>
+          {isAirtime && name.trim() !== '' && denominationValue === null ? (
+            <p className={styles.error}>{t('prod.valueInName')}</p>
           ) : null}
+
+          {isPhone ? (
+            <label className={styles.field}>
+              <span>
+                {t('prod.storage')}<em>{t('common.required')}</em>
+              </span>
+              <input
+                value={storage}
+                onChange={(event) => setStorage(event.target.value)}
+                placeholder="64/4"
+                required
+                maxLength={40}
+              />
+              <small className={styles.hint}>{t('prod.storageNote')}</small>
+            </label>
+          ) : null}
+
+          {/* What the business pays for one, for profit and loss. */}
+          <label className={styles.field}>
+            <span>
+              {t('prod.costPrice')}<em>{t('prod.optional')}</em>
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={costPrice}
+              onChange={(event) => setCostPrice(event.target.value)}
+            />
+            <small className={styles.hint}>{t('prod.costPriceNote')}</small>
+          </label>
+
+          <label className={styles.field}>
+            <span>
+              {t('prod.price')}<em>{t('common.required')}</em>
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={price}
+              onChange={(event) => setPrice(event.target.value)}
+              required
+            />
+            <small className={styles.hint}>{t('prod.priceNote')}</small>
+          </label>
 
           <label className={styles.field}>
             <span>
@@ -439,7 +371,6 @@ export function ProductDialog({
             setAddingCategory(false)
             reloadCategories()
             setCategoryId(created.id)
-            setModelId('')
           }}
         />
       ) : null}

@@ -170,6 +170,18 @@ export async function getSalesReport(
       byCategory: ReturnType<typeof zeroByCategory>;
     }
   >();
+  const sellerTotals = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      branch: string;
+      revenue: number;
+      cashReceived: number;
+      transactions: number;
+      byCategory: ReturnType<typeof zeroByCategory>;
+    }
+  >();
 
   const summary = {
     revenue: 0,
@@ -264,6 +276,26 @@ export async function getSalesReport(
 
     branchTotals.set(sale.location.id, branch);
 
+    // The same figures per salesperson, so a supervisor reads each name.
+    const seller = sellerTotals.get(sale.salesperson.id) ?? {
+      id: sale.salesperson.id,
+      name: sale.salesperson.name,
+      branch: sale.location.name,
+      revenue: 0,
+      cashReceived: 0,
+      transactions: 0,
+      byCategory: zeroByCategory(),
+    };
+    seller.revenue += total;
+    seller.cashReceived += cash;
+    seller.transactions += 1;
+    for (const item of sale.items) {
+      const category = item.product.category as Category;
+      seller.byCategory[category].quantity += item.quantity;
+      seller.byCategory[category].revenue += item.lineTotal.toNumber();
+    }
+    sellerTotals.set(sale.salesperson.id, seller);
+
     // Day x branch, so a range of days can be read branch by branch without
     // picking each day in turn.
     const day = dayKey(sale.saleDate);
@@ -319,7 +351,17 @@ export async function getSalesReport(
     byBranch: [...branchTotals.values()].sort(
       (a, b) => b.revenue - a.revenue,
     ),
+    bySalesperson: [...sellerTotals.values()].sort(
+      (a, b) => b.revenue - a.revenue,
+    ),
   };
+}
+
+// A date with no time means "from the start of that day", in local time:
+// new Date("2026-10-09") alone is UTC midnight, which misses a deposit or
+// expense stamped at local midnight on a server not set to UTC.
+function startOfDay(value: string) {
+  return value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
 }
 
 // A date with no time means "to the end of that day".
@@ -356,6 +398,82 @@ function receiptScope(
 }
 
 /**
+ * Cash that moves outside sales and handovers, person by person: National ID
+ * and Telebirr money taken in cash adds to what someone holds; an expense paid
+ * from their cash and a deduction (money lost, taken from their salary) come
+ * off it. `when` limits the window, as for the other movements.
+ */
+async function otherCash(
+  viewer: Viewer,
+  query: { branchId?: string },
+  when: { gte?: Date; lt?: Date; lte?: Date },
+) {
+  const branch =
+    viewer.role === "SUPERVISOR" ? (viewer.branchId ?? "__none__") : viewer.role === "OWNER" ? query.branchId : undefined;
+  const mine = viewer.role === "SALES" ? viewer.userId : undefined;
+  const hasWindow = when.gte || when.lt || when.lte;
+  const person = { select: { id: true, name: true, branch: { select: { id: true, name: true } } } };
+  // A deduction's day is a "YYYY-MM-DD" string, compared as one.
+  const dayWindow = {
+    ...(when.gte ? { gte: dayKey(when.gte) } : {}),
+    ...(when.lt ? { lt: dayKey(when.lt) } : {}),
+    ...(when.lte ? { lte: dayKey(when.lte) } : {}),
+  };
+
+  const [orders, telebirr, expenses, deductions] = await Promise.all([
+    prisma.nationalIdOrder.findMany({
+      where: {
+        ...(hasWindow ? { createdAt: when } : {}),
+        ...(branch ? { locationId: branch } : {}),
+        ...(mine ? { recordedById: mine } : {}),
+      },
+      select: { price: true, transferAmount: true, createdAt: true, recordedBy: person },
+    }),
+    prisma.telebirrTransaction.findMany({
+      where: {
+        ...(hasWindow ? { createdAt: when } : {}),
+        ...(branch ? { locationId: branch } : {}),
+        ...(mine ? { recordedById: mine } : {}),
+      },
+      select: { amount: true, transferAmount: true, createdAt: true, recordedBy: person },
+    }),
+    // Only expenses that name whose cash paid them; older ones did not.
+    prisma.expense.findMany({
+      where: {
+        spentById: mine ?? { not: null },
+        ...(hasWindow ? { expenseDate: when } : {}),
+        ...(branch ? { locationId: branch } : {}),
+      },
+      select: { amount: true, expenseDate: true, spentBy: person },
+    }),
+    prisma.deduction.findMany({
+      where: {
+        ...(hasWindow ? { day: dayWindow } : {}),
+        ...(branch ? { user: { branchId: branch } } : {}),
+        ...(mine ? { userId: mine } : {}),
+      },
+      select: { total: true, day: true, user: person },
+    }),
+  ]);
+
+  type Who = { id: string; name: string; branch: { id: string; name: string } | null };
+  const moves: { who: Who; date: Date; kind: "other" | "expenses" | "deductions"; amount: number }[] = [];
+  for (const row of orders) {
+    moves.push({ who: row.recordedBy, date: row.createdAt, kind: "other", amount: row.price.toNumber() - row.transferAmount.toNumber() });
+  }
+  for (const row of telebirr) {
+    moves.push({ who: row.recordedBy, date: row.createdAt, kind: "other", amount: row.amount.toNumber() - row.transferAmount.toNumber() });
+  }
+  for (const row of expenses) {
+    if (row.spentBy) moves.push({ who: row.spentBy, date: row.expenseDate, kind: "expenses", amount: row.amount.toNumber() });
+  }
+  for (const row of deductions) {
+    moves.push({ who: row.user, date: new Date(`${row.day}T12:00:00`), kind: "deductions", amount: row.total.toNumber() });
+  }
+  return moves;
+}
+
+/**
  * Cash held before the report's first day — "yadere", the balance brought
  * forward.
  *
@@ -364,7 +482,7 @@ function receiptScope(
  * That carry-over is not a figure anyone types: it is every cash sale ever
  * made, less every verified deposit, up to the day before this report starts.
  */
-async function openingBalances(
+export async function openingBalances(
   from: string,
   viewer: Viewer,
   query: { branchId?: string; salespersonId?: string },
@@ -415,6 +533,10 @@ async function openingBalances(
   for (const collection of collections) {
     move(collection.salespersonId, -collection.amount.toNumber());
     move(collection.supervisorId, collection.amount.toNumber());
+  }
+
+  for (const entry of await otherCash(viewer, query, { lt: before })) {
+    move(entry.who.id, entry.kind === "other" ? entry.amount : -entry.amount);
   }
 
   return opening;
@@ -468,7 +590,7 @@ export async function getCashPosition(
     ...(query.from || query.to
       ? {
           receiptDate: {
-            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.from ? { gte: startOfDay(query.from) } : {}),
             ...(query.to ? { lte: endOfDay(query.to) } : {}),
           },
         }
@@ -481,7 +603,7 @@ export async function getCashPosition(
       ...(query.from || query.to
         ? {
             collectedAt: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
+              ...(query.from ? { gte: startOfDay(query.from) } : {}),
               ...(query.to ? { lte: endOfDay(query.to) } : {}),
             },
           }
@@ -524,6 +646,12 @@ export async function getCashPosition(
       /** Held from before this report's first day: yadere. */
       opening: number;
       sold: number;
+      /** National ID and Telebirr money taken in cash. */
+      other: number;
+      /** Expenses paid from this person's cash. */
+      expenses: number;
+      /** Money lost, also taken off their salary. */
+      deductions: number;
       /** Cash this seller handed to their supervisor. */
       handedOver: number;
       /** Cash this supervisor took in from their sellers. */
@@ -546,6 +674,9 @@ export async function getCashPosition(
         branch: branch?.name ?? null,
         opening: 0,
         sold: 0,
+        other: 0,
+        expenses: 0,
+        deductions: 0,
         handedOver: 0,
         collected: 0,
         banked: 0,
@@ -612,6 +743,14 @@ export async function getCashPosition(
     if (seller) seller.handedOver += amount;
   }
 
+  const others = await otherCash(viewer, query, {
+    ...(query.from ? { gte: startOfDay(query.from) } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  });
+  for (const entry of others) {
+    row(entry.who.id, entry.who.name, entry.who.branch)[entry.kind] += entry.amount;
+  }
+
   // One line for everyone, whatever their role: what they started with, plus
   // what came in, less what went out. A seller takes cash in over the counter
   // and hands it up; a supervisor takes it in from sellers and banks it, and
@@ -620,9 +759,12 @@ export async function getCashPosition(
     person.inHand =
       person.opening +
       person.sold +
+      person.other +
       person.collected -
       person.handedOver -
-      person.banked;
+      person.banked -
+      person.expenses -
+      person.deductions;
   }
 
   const rows = [...people.values()].sort(
@@ -636,12 +778,15 @@ export async function getCashPosition(
     totals: {
       opening: rows.reduce((s, r) => s + r.opening, 0),
       sold: rows.reduce((s, r) => s + r.sold, 0),
+      other: rows.reduce((s, r) => s + r.other, 0),
+      expenses: rows.reduce((s, r) => s + r.expenses, 0),
+      deductions: rows.reduce((s, r) => s + r.deductions, 0),
       handedOver: rows.reduce((s, r) => s + r.handedOver, 0),
       collected: rows.reduce((s, r) => s + r.collected, 0),
       banked: rows.reduce((s, r) => s + r.banked, 0),
       inHand: rows.reduce((s, r) => s + r.inHand, 0),
     },
-    days: dailyLedger(query, sales, receipts, rows),
+    days: dailyLedger(query, sales, receipts, rows, others),
   };
 }
 
@@ -650,6 +795,8 @@ type LedgerDay = {
   date: string;
   opening: number;
   collected: number;
+  /** Expenses and deductions. */
+  spent: number;
   deposited: number;
   closing: number;
 };
@@ -669,11 +816,19 @@ function dailyLedger(
   sales: { saleDate: Date; cashReceived: Prisma.Decimal }[],
   receipts: { receiptDate: Date; amount: Prisma.Decimal }[],
   rows: { opening: number }[],
+  others: { date: Date; kind: "other" | "expenses" | "deductions"; amount: number }[],
 ): LedgerDay[] | null {
   if (!query.from || !query.to) return null;
 
   const collected = new Map<string, number>();
   const deposited = new Map<string, number>();
+  const spent = new Map<string, number>();
+
+  for (const entry of others) {
+    const key = dayKey(entry.date);
+    const into = entry.kind === "other" ? collected : spent;
+    into.set(key, (into.get(key) ?? 0) + entry.amount);
+  }
 
   for (const sale of sales) {
     const key = dayKey(sale.saleDate);
@@ -700,11 +855,12 @@ function dailyLedger(
       date: key,
       opening: balance,
       collected: collected.get(key) ?? 0,
+      spent: spent.get(key) ?? 0,
       deposited: deposited.get(key) ?? 0,
       closing: 0,
     };
 
-    day.closing = day.opening + day.collected - day.deposited;
+    day.closing = day.opening + day.collected - day.spent - day.deposited;
     balance = day.closing;
 
     days.push(day);
@@ -1247,14 +1403,34 @@ export async function getLowStock(viewer: Viewer, limit = 5) {
           ...holding,
           location: { id: viewer.userId, name: "" },
         }))
-      : await prisma.inventoryBalance.findMany({
-          where: branchId ? { locationId: branchId } : {},
-          select: {
-            quantity: true,
-            product: { select: productSelect },
-            location: { select: { id: true, name: true } },
-          },
-        });
+      : [
+          // Branch shelves. The main store's own figure is only the sum of
+          // the branches' shares, so it is watched share by share instead.
+          ...(await prisma.inventoryBalance.findMany({
+            where: branchId ? { locationId: branchId } : { location: { isMainStock: false } },
+            select: {
+              quantity: true,
+              product: { select: productSelect },
+              location: { select: { id: true, name: true } },
+            },
+          })),
+          // The Owner's stock held for each branch at the main store.
+          ...(viewer.role === "OWNER"
+            ? (
+                await prisma.branchStock.findMany({
+                  select: {
+                    quantity: true,
+                    product: { select: productSelect },
+                    branch: { select: { id: true, name: true } },
+                  },
+                })
+              ).map((row) => ({
+                quantity: row.quantity,
+                product: row.product,
+                location: { id: `share-${row.branch.id}`, name: `${row.branch.name} · Owner stock` },
+              }))
+            : []),
+        ];
 
   const threshold: Record<string, number> = {
     SIM_CARD: 10,
@@ -1435,6 +1611,553 @@ export function salesReportCsv(
   );
 }
 
+/**
+ * Money credited to each bank, person by person: the cash deposits they made
+ * (verified slips only) and the transfers customers sent them for sales,
+ * National ID and Telebirr. Each bank lists its people and its total.
+ */
+export async function getBankReport(
+  query: { from?: string; to?: string; branchId?: string },
+  viewer: Viewer,
+) {
+  const when = {
+    ...(query.from ? { gte: startOfDay(query.from) } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  };
+  const hasWindow = Boolean(query.from || query.to);
+  const branch =
+    viewer.role === "SUPERVISOR" ? (viewer.branchId ?? "__none__") : viewer.role === "OWNER" ? query.branchId : undefined;
+  const mine = viewer.role === "SALES" ? viewer.userId : undefined;
+  const person = { select: { id: true, name: true, branch: { select: { name: true } } } };
+
+  const [receipts, sales, orders, telebirr] = await Promise.all([
+    prisma.bankReceipt.findMany({
+      where: { ...receiptScope(viewer, query), ...(hasWindow ? { receiptDate: when } : {}) },
+      select: { bankName: true, amount: true, uploadedBy: person },
+    }),
+    prisma.sale.findMany({
+      where: {
+        status: "APPROVED",
+        transferReceived: { gt: 0 },
+        ...salesScope(viewer, query),
+        ...(hasWindow ? { saleDate: when } : {}),
+      },
+      select: { bankName: true, transferReceived: true, salesperson: person },
+    }),
+    prisma.nationalIdOrder.findMany({
+      where: {
+        transferAmount: { gt: 0 },
+        ...(hasWindow ? { createdAt: when } : {}),
+        ...(branch ? { locationId: branch } : {}),
+        ...(mine ? { recordedById: mine } : {}),
+      },
+      select: { bankName: true, transferAmount: true, recordedBy: person },
+    }),
+    prisma.telebirrTransaction.findMany({
+      where: {
+        transferAmount: { gt: 0 },
+        ...(hasWindow ? { createdAt: when } : {}),
+        ...(branch ? { locationId: branch } : {}),
+        ...(mine ? { recordedById: mine } : {}),
+      },
+      select: { bankName: true, transferAmount: true, recordedBy: person },
+    }),
+  ]);
+
+  type Person = { id: string; name: string; branch: string | null; deposits: number; transfers: number; total: number };
+  const banks = new Map<string, Map<string, Person>>();
+  const add = (
+    bankName: string | null,
+    who: { id: string; name: string; branch: { name: string } | null },
+    kind: "deposits" | "transfers",
+    amount: number,
+  ) => {
+    const bank = bankName?.trim() || "—";
+    const people = banks.get(bank) ?? new Map<string, Person>();
+    banks.set(bank, people);
+    const row =
+      people.get(who.id) ??
+      { id: who.id, name: who.name, branch: who.branch?.name ?? null, deposits: 0, transfers: 0, total: 0 };
+    people.set(who.id, row);
+    row[kind] += amount;
+    row.total += amount;
+  };
+
+  for (const row of receipts) add(row.bankName, row.uploadedBy, "deposits", row.amount.toNumber());
+  for (const row of sales) add(row.bankName, row.salesperson, "transfers", row.transferReceived.toNumber());
+  for (const row of orders) add(row.bankName, row.recordedBy, "transfers", row.transferAmount.toNumber());
+  for (const row of telebirr) add(row.bankName, row.recordedBy, "transfers", row.transferAmount.toNumber());
+
+  const sum = (rows: Person[], key: "deposits" | "transfers" | "total") =>
+    Math.round(rows.reduce((total, row) => total + row[key], 0) * 100) / 100;
+
+  const list = [...banks.entries()]
+    .map(([bank, people]) => {
+      const rows = [...people.values()].sort((a, b) => b.total - a.total);
+      return { bank, people: rows, deposits: sum(rows, "deposits"), transfers: sum(rows, "transfers"), total: sum(rows, "total") };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  const everyone = list.flatMap((bank) => bank.people);
+  return {
+    banks: list,
+    totals: { deposits: sum(everyone, "deposits"), transfers: sum(everyone, "transfers"), total: sum(everyone, "total") },
+  };
+}
+
+/**
+ * One person's whole picture for the dates chosen: every sale with every item
+ * on it, and what else touched their money: deductions, expenses, stock lost
+ * or damaged, bank deposits, National ID and Telebirr. A supervisor reads
+ * people in their own branch, a salesperson only themselves.
+ */
+export async function getPersonReport(
+  query: { userId: string; from?: string; to?: string },
+  viewer: Viewer,
+) {
+  const person = await prisma.user.findUnique({
+    where: { id: viewer.role === "SALES" ? viewer.userId : query.userId },
+    select: { id: true, name: true, role: true, branchId: true, branch: { select: { name: true } } },
+  });
+  if (!person || person.role === "OWNER") throw new Error("PERSON_NOT_FOUND");
+  if (viewer.role === "SUPERVISOR" && person.branchId !== viewer.branchId) throw new Error("PERSON_NOT_FOUND");
+
+  const when = {
+    ...(query.from ? { gte: startOfDay(query.from) } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  };
+  const hasWindow = Boolean(query.from || query.to);
+  const days = {
+    ...(query.from ? { gte: query.from.slice(0, 10) } : {}),
+    ...(query.to ? { lte: query.to.slice(0, 10) } : {}),
+  };
+
+  const [sales, deductions, expenses, losses, deposits, orders, telebirr] = await Promise.all([
+    prisma.sale.findMany({
+      where: { salespersonId: person.id, status: "APPROVED", ...(hasWindow ? { saleDate: when } : {}) },
+      select: {
+        id: true,
+        saleDate: true,
+        totalAmount: true,
+        cashReceived: true,
+        transferReceived: true,
+        paymentMethod: true,
+        bankName: true,
+        items: { select: { quantity: true, lineTotal: true, product: { select: { name: true } } } },
+      },
+      orderBy: { saleDate: "desc" },
+    }),
+    prisma.deduction.findMany({
+      where: { userId: person.id, ...(hasWindow ? { day: days } : {}) },
+      select: {
+        id: true,
+        day: true,
+        total: true,
+        note: true,
+        lines: { select: { productId: true, label: true, quantity: true, amount: true } },
+      },
+      orderBy: { day: "desc" },
+    }),
+    prisma.expense.findMany({
+      where: { spentById: person.id, ...(hasWindow ? { expenseDate: when } : {}) },
+      select: { id: true, expenseDate: true, reason: true, amount: true, note: true },
+      orderBy: { expenseDate: "desc" },
+    }),
+    prisma.stockLossReport.findMany({
+      where: { reportedById: person.id, ...(hasWindow ? { createdAt: when } : {}) },
+      select: {
+        id: true,
+        createdAt: true,
+        kind: true,
+        status: true,
+        quantity: true,
+        reason: true,
+        product: { select: { name: true, price: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.bankReceipt.findMany({
+      where: { uploadedById: person.id, ...(hasWindow ? { receiptDate: when } : {}) },
+      select: { id: true, receiptDate: true, bankName: true, amount: true, status: true },
+      orderBy: { receiptDate: "desc" },
+    }),
+    prisma.nationalIdOrder.findMany({
+      where: { recordedById: person.id, ...(hasWindow ? { createdAt: when } : {}) },
+      select: { price: true, transferAmount: true },
+    }),
+    prisma.telebirrTransaction.findMany({
+      where: { recordedById: person.id, ...(hasWindow ? { createdAt: when } : {}) },
+      select: { amount: true, transferAmount: true },
+    }),
+  ]);
+
+  const n = (value: { toNumber(): number }) => value.toNumber();
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const add = (list: number[]) => round(list.reduce((sum, value) => sum + value, 0));
+
+  return {
+    person: { id: person.id, name: person.name, role: person.role, branch: person.branch?.name ?? null },
+    totals: {
+      sales: add(sales.map((row) => n(row.totalAmount))),
+      salesCount: sales.length,
+      items: sales.reduce((sum, row) => sum + row.items.reduce((acc, item) => acc + item.quantity, 0), 0),
+      cash: add(sales.map((row) => n(row.cashReceived))),
+      transfer: add(sales.map((row) => n(row.transferReceived))),
+      nationalId: add(orders.map((row) => n(row.price))),
+      telebirr: add(telebirr.map((row) => n(row.amount))),
+      deductions: add(deductions.map((row) => n(row.total))),
+      expenses: add(expenses.map((row) => n(row.amount))),
+      lost: add(losses.filter((row) => row.status !== "REJECTED").map((row) => n(row.product.price) * row.quantity)),
+      banked: add(deposits.filter((row) => row.status === "VERIFIED").map((row) => n(row.amount))),
+    },
+    sales: sales.map((row) => ({
+      id: row.id,
+      date: row.saleDate.toISOString(),
+      total: n(row.totalAmount),
+      cash: n(row.cashReceived),
+      transfer: n(row.transferReceived),
+      paymentMethod: row.paymentMethod,
+      bankName: row.bankName,
+      items: row.items.map((item) => ({ name: item.product.name, quantity: item.quantity, total: n(item.lineTotal) })),
+    })),
+    deductions: deductions.map((row) => ({
+      id: row.id,
+      day: row.day,
+      total: n(row.total),
+      note: row.note,
+      lines: row.lines.map((line) => ({
+        label: line.productId ? line.label : null,
+        quantity: line.quantity,
+        amount: n(line.amount),
+      })),
+    })),
+    expenses: expenses.map((row) => ({
+      id: row.id,
+      date: row.expenseDate.toISOString(),
+      reason: row.reason,
+      note: row.note,
+      amount: n(row.amount),
+    })),
+    losses: losses.map((row) => ({
+      id: row.id,
+      date: row.createdAt.toISOString(),
+      kind: row.kind,
+      status: row.status,
+      product: row.product.name,
+      quantity: row.quantity,
+      value: round(n(row.product.price) * row.quantity),
+      reason: row.reason,
+    })),
+    deposits: deposits.map((row) => ({
+      id: row.id,
+      date: row.receiptDate.toISOString(),
+      bankName: row.bankName,
+      amount: n(row.amount),
+      status: row.status,
+    })),
+  };
+}
+
+/**
+ * National ID and Telebirr money per person per day, split into cash and
+ * transfer, so a day of sales can carry them alongside the items sold. Scoped
+ * like everything else: a salesperson their own, a supervisor their branch.
+ */
+export async function getOtherDaily(
+  query: { from?: string; to?: string; branchId?: string },
+  viewer: Viewer,
+) {
+  const when = {
+    ...(query.from ? { gte: startOfDay(query.from) } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  };
+  const hasWindow = Boolean(query.from || query.to);
+  const branch =
+    viewer.role === "SUPERVISOR" ? (viewer.branchId ?? "__none__") : viewer.role === "OWNER" ? query.branchId || undefined : undefined;
+  const scope =
+    viewer.role === "SALES" ? { recordedById: viewer.userId } : branch ? { locationId: branch } : {};
+  const person = { select: { id: true, name: true } };
+  const days = {
+    ...(query.from ? { gte: query.from.slice(0, 10) } : {}),
+    ...(query.to ? { lte: query.to.slice(0, 10) } : {}),
+  };
+
+  const [orders, telebirr, deductions, deposits, expenses, declaredYadere] = await Promise.all([
+    prisma.nationalIdOrder.findMany({
+      where: { ...scope, ...(hasWindow ? { createdAt: when } : {}) },
+      select: { kind: true, price: true, transferAmount: true, bankName: true, createdAt: true, recordedBy: person, location: { select: { name: true } } },
+    }),
+    prisma.telebirrTransaction.findMany({
+      where: { ...scope, ...(hasWindow ? { createdAt: when } : {}) },
+      select: { amount: true, transferAmount: true, bankName: true, createdAt: true, recordedBy: person, location: { select: { name: true } } },
+    }),
+    // Money taken off the person that day: it comes off the day's takings.
+    prisma.deduction.findMany({
+      where: {
+        ...(hasWindow ? { day: days } : {}),
+        ...(viewer.role === "SALES" ? { userId: viewer.userId } : branch ? { user: { branchId: branch } } : {}),
+      },
+      select: {
+        day: true,
+        total: true,
+        note: true,
+        user: { select: { id: true, name: true, branch: { select: { name: true } } } },
+        lines: { select: { productId: true, label: true, quantity: true, amount: true } },
+      },
+    }),
+    // Cash the person took to the bank that day; a rejected slip never counted.
+    prisma.bankReceipt.findMany({
+      where: {
+        status: { not: "REJECTED" },
+        ...(hasWindow ? { receiptDate: when } : {}),
+        ...(viewer.role === "SALES" ? { uploadedById: viewer.userId } : branch ? { uploadedBy: { branchId: branch } } : {}),
+      },
+      select: {
+        amount: true,
+        bankName: true,
+        status: true,
+        receiptDate: true,
+        uploadedBy: { select: { id: true, name: true, role: true, branch: { select: { name: true } } } },
+        location: { select: { name: true } },
+      },
+    }),
+    // Paid out of the person's cash that day.
+    prisma.expense.findMany({
+      where: {
+        spentById: viewer.role === "SALES" ? viewer.userId : { not: null },
+        ...(hasWindow ? { expenseDate: when } : {}),
+        ...(viewer.role !== "SALES" && branch ? { locationId: branch } : {}),
+      },
+      select: {
+        amount: true,
+        reason: true,
+        expenseDate: true,
+        location: { select: { name: true } },
+        spentBy: { select: { id: true, name: true, role: true, branch: { select: { name: true } } } },
+      },
+    }),
+    prisma.salesYadere.findMany({
+      where: {
+        ...(hasWindow ? { day: when } : {}),
+        ...(viewer.role === "SALES" ? { salespersonId: viewer.userId } : branch ? { salesperson: { branchId: branch } } : {}),
+      },
+      select: {
+        day: true,
+        amount: true,
+        salesperson: { select: { branch: { select: { name: true } } } },
+      },
+    }),
+  ]);
+
+  type Money = { count: number; amount: number; cash: number; transfer: number };
+  const money = (): Money => ({ count: 0, amount: 0, cash: 0, transfer: 0 });
+  const rows = new Map<
+    string,
+    {
+      date: string;
+      person: { id: string; name: string };
+      branch: string;
+      nationalId: Money;
+      /** National ID split by kind: how many and for how much. */
+      nidOriginal: { count: number; amount: number };
+      nidCopy: { count: number; amount: number };
+      telebirr: Money;
+      deposits: { amount: number; items: { bankName: string | null; amount: number; status: string }[] };
+      /** National ID and Telebirr money customers sent to a bank. */
+      transfers: { bankName: string | null; amount: number }[];
+      expenses: { amount: number; items: { reason: string; amount: number }[] };
+      deductions: { amount: number; items: { label: string | null; quantity: number; amount: number; note: string | null }[] };
+    }
+  >();
+  const at = (date: Date, who: { id: string; name: string }, branch: string) => {
+    const key = `${dayKey(date)}|${who.id}`;
+    const row =
+      rows.get(key) ??
+      {
+        date: dayKey(date),
+        person: who,
+        branch,
+        nationalId: money(),
+        nidOriginal: { count: 0, amount: 0 },
+        nidCopy: { count: 0, amount: 0 },
+        telebirr: money(),
+        deposits: { amount: 0, items: [] },
+        transfers: [],
+        expenses: { amount: 0, items: [] },
+        deductions: { amount: 0, items: [] },
+      };
+    rows.set(key, row);
+    return row;
+  };
+  const add = (into: Money, amount: number, transfer: number) => {
+    into.count += 1;
+    into.amount += amount;
+    into.transfer += transfer;
+    into.cash += amount - transfer;
+  };
+
+  for (const row of orders) {
+    const day = at(row.createdAt, row.recordedBy, row.location.name);
+    add(day.nationalId, row.price.toNumber(), row.transferAmount.toNumber());
+    const kind = row.kind === "COPY" ? day.nidCopy : day.nidOriginal;
+    kind.count += 1;
+    kind.amount += row.price.toNumber();
+    if (row.transferAmount.toNumber() > 0) day.transfers.push({ bankName: row.bankName, amount: row.transferAmount.toNumber() });
+  }
+  for (const row of telebirr) {
+    const day = at(row.createdAt, row.recordedBy, row.location.name);
+    add(day.telebirr, row.amount.toNumber(), row.transferAmount.toNumber());
+    if (row.transferAmount.toNumber() > 0) day.transfers.push({ bankName: row.bankName, amount: row.transferAmount.toNumber() });
+  }
+
+  // A salesperson's slip comes off their own day. A supervisor (or the
+  // Owner) banks the branch's takings, so theirs comes off the branch's day.
+  // The same for expenses: the supervisor pays theirs out of the money
+  // collected from the whole branch.
+  const branchDeposits = new Map<
+    string,
+    {
+      date: string;
+      branch: string;
+      amount: number;
+      items: { bankName: string | null; amount: number; status: string; by: string }[];
+      expenseAmount: number;
+      expenses: { reason: string; amount: number; by: string }[];
+    }
+  >();
+
+  for (const row of expenses) {
+    if (!row.spentBy) continue;
+    if (row.spentBy.role !== "SALES") {
+      const branchName = row.location?.name ?? row.spentBy.branch?.name ?? "—";
+      const key = `${dayKey(row.expenseDate)}|${branchName}`;
+      const entry = branchDeposits.get(key) ?? {
+        date: dayKey(row.expenseDate),
+        branch: branchName,
+        amount: 0,
+        items: [],
+        expenseAmount: 0,
+        expenses: [],
+      };
+      entry.expenseAmount += row.amount.toNumber();
+      entry.expenses.push({ reason: row.reason, amount: row.amount.toNumber(), by: row.spentBy.name });
+      branchDeposits.set(key, entry);
+      continue;
+    }
+    const day = at(row.expenseDate, { id: row.spentBy.id, name: row.spentBy.name }, row.spentBy.branch?.name ?? "—");
+    day.expenses.amount += row.amount.toNumber();
+    day.expenses.items.push({ reason: row.reason, amount: row.amount.toNumber() });
+  }
+  for (const row of deposits) {
+    if (row.uploadedBy.role === "SALES") {
+      const day = at(row.receiptDate, { id: row.uploadedBy.id, name: row.uploadedBy.name }, row.uploadedBy.branch?.name ?? "—");
+      day.deposits.amount += row.amount.toNumber();
+      day.deposits.items.push({ bankName: row.bankName, amount: row.amount.toNumber(), status: row.status });
+      continue;
+    }
+    const branchName = row.location?.name ?? row.uploadedBy.branch?.name ?? "—";
+    const key = `${dayKey(row.receiptDate)}|${branchName}`;
+    const entry = branchDeposits.get(key) ?? {
+      date: dayKey(row.receiptDate),
+      branch: branchName,
+      amount: 0,
+      items: [],
+      expenseAmount: 0,
+      expenses: [],
+    };
+    entry.amount += row.amount.toNumber();
+    entry.items.push({ bankName: row.bankName, amount: row.amount.toNumber(), status: row.status, by: row.uploadedBy.name });
+    branchDeposits.set(key, entry);
+  }
+
+  for (const row of deductions) {
+    const day = at(new Date(`${row.day}T12:00:00`), { id: row.user.id, name: row.user.name }, row.user.branch?.name ?? "—");
+    day.deductions.amount += row.total.toNumber();
+    for (const line of row.lines) {
+      day.deductions.items.push({
+        // A product's name, or null for money with no product behind it.
+        label: line.productId ? line.label : null,
+        quantity: line.quantity,
+        amount: line.amount.toNumber(),
+        note: line.productId ? null : row.note,
+      });
+    }
+  }
+
+  const branchYadereDaily = new Map<string, { date: string; branch: string; amount: number }>();
+  for (const row of declaredYadere) {
+    const branchName = row.salesperson.branch?.name ?? "—";
+    const date = dayKey(row.day);
+    const key = `${date}|${branchName}`;
+    const entry = branchYadereDaily.get(key) ?? { date, branch: branchName, amount: 0 };
+    entry.amount += row.amount.toNumber();
+    branchYadereDaily.set(key, entry);
+  }
+
+  return { days: [...rows.values()], branchDeposits: [...branchDeposits.values()], branchYadereDaily: [...branchYadereDaily.values()] };
+}
+
+/**
+ * Per branch name: the yadere the branch held when a day began. Salespeople
+ * hold nothing overnight: everything they took in cash, less deductions,
+ * expenses and what they banked, went to the supervisor, who banked what they
+ * could. What is left of all of it, before the day, is the branch's yadere.
+ */
+export async function branchYadereBefore(from: string, viewer: Viewer, branchId?: string) {
+  const branch =
+    viewer.role === "SUPERVISOR" ? (viewer.branchId ?? "__none__") : viewer.role === "OWNER" ? branchId || undefined : "__none__";
+  const before = startOfDay(from);
+  const at = branch ? { locationId: branch } : {};
+
+  const [sales, orders, telebirr, deductions, expenses, receipts, locations] = await Promise.all([
+    prisma.sale.findMany({
+      where: { status: "APPROVED", saleDate: { lt: before }, ...at },
+      select: { locationId: true, totalAmount: true, transferReceived: true },
+    }),
+    prisma.nationalIdOrder.findMany({
+      where: { createdAt: { lt: before }, ...at },
+      select: { locationId: true, price: true, transferAmount: true },
+    }),
+    prisma.telebirrTransaction.findMany({
+      where: { createdAt: { lt: before }, ...at },
+      select: { locationId: true, amount: true, transferAmount: true },
+    }),
+    prisma.deduction.findMany({
+      where: { day: { lt: from.slice(0, 10) }, ...(branch ? { user: { branchId: branch } } : {}) },
+      select: { total: true, user: { select: { branchId: true } } },
+    }),
+    prisma.expense.findMany({
+      where: { spentById: { not: null }, expenseDate: { lt: before }, ...at },
+      select: { locationId: true, amount: true },
+    }),
+    prisma.bankReceipt.findMany({
+      where: { status: { not: "REJECTED" }, receiptDate: { lt: before }, ...at },
+      select: { locationId: true, amount: true },
+    }),
+    prisma.stockLocation.findMany({ select: { id: true, name: true } }),
+  ]);
+
+  const held = new Map<string, number>();
+  const move = (locationId: string | null | undefined, amount: number) => {
+    if (!locationId) return;
+    held.set(locationId, (held.get(locationId) ?? 0) + amount);
+  };
+  for (const row of sales) {
+    const total = row.totalAmount.toNumber();
+    move(row.locationId, total - Math.min(row.transferReceived.toNumber(), total));
+  }
+  for (const row of orders) move(row.locationId, row.price.toNumber() - row.transferAmount.toNumber());
+  for (const row of telebirr) move(row.locationId, row.amount.toNumber() - row.transferAmount.toNumber());
+  for (const row of deductions) move(row.user.branchId, -row.total.toNumber());
+  for (const row of expenses) move(row.locationId, -row.amount.toNumber());
+  for (const row of receipts) move(row.locationId, -row.amount.toNumber());
+
+  const names = new Map(locations.map((row) => [row.id, row.name]));
+  const out: Record<string, number> = {};
+  for (const [id, amount] of held) out[names.get(id) ?? "—"] = Math.round(amount * 100) / 100;
+  return out;
+}
+
 export function cashPositionCsv(
   report: Awaited<ReturnType<typeof getCashPosition>>,
 ) {
@@ -1444,9 +2167,12 @@ export function cashPositionCsv(
       "Branch",
       "Brought forward",
       "Sold",
+      "National ID + Telebirr cash",
       "Handed to supervisor",
       "Taken in from team",
       "Banked",
+      "Expenses",
+      "Deductions",
       "Still in hand",
     ],
     [
@@ -1455,9 +2181,12 @@ export function cashPositionCsv(
         p.branch ?? "",
         p.opening.toFixed(2),
         p.sold.toFixed(2),
+        p.other.toFixed(2),
         p.handedOver.toFixed(2),
         p.collected.toFixed(2),
         p.banked.toFixed(2),
+        p.expenses.toFixed(2),
+        p.deductions.toFixed(2),
         p.inHand.toFixed(2),
       ]),
       [
@@ -1465,9 +2194,12 @@ export function cashPositionCsv(
         "",
         report.totals.opening.toFixed(2),
         report.totals.sold.toFixed(2),
+        report.totals.other.toFixed(2),
         report.totals.handedOver.toFixed(2),
         report.totals.collected.toFixed(2),
         report.totals.banked.toFixed(2),
+        report.totals.expenses.toFixed(2),
+        report.totals.deductions.toFixed(2),
         report.totals.inHand.toFixed(2),
       ],
     ],
@@ -1478,11 +2210,12 @@ export function cashPositionCsv(
   // One file, two tables: who holds what, then how the money moved day by
   // day. A blank line keeps the two apart when the file opens in Excel.
   const ledger = toCsv(
-    ["Date", "Brought forward", "Collected", "Deposited", "Carried forward"],
+    ["Date", "Brought forward", "Collected", "Expenses and deductions", "Deposited", "Carried forward"],
     report.days.map((day) => [
       day.date,
       day.opening.toFixed(2),
       day.collected.toFixed(2),
+      day.spent.toFixed(2),
       day.deposited.toFixed(2),
       day.closing.toFixed(2),
     ]),
@@ -1507,4 +2240,242 @@ export function inventoryReportCsv(
       ]),
     ),
   );
+}
+
+/**
+ * Every phone and SIM card sold, one row per unit, with the IMEI or ICCID the
+ * seller typed at the sale. Stock is counted by quantity until then, so this
+ * is where each handset's details first appear. Scoped like the sales report.
+ */
+export async function getSoldUnits(
+  query: { from?: string; to?: string; branchId?: string },
+  viewer: Viewer,
+) {
+  const units = await prisma.inventoryUnit.findMany({
+    where: {
+      saleItem: {
+        sale: {
+          status: "APPROVED",
+          ...salesScope(viewer, query),
+          ...dateRange(query.from, query.to),
+        },
+      },
+    },
+    select: {
+      id: true,
+      imei: true,
+      iccid: true,
+      product: {
+        select: {
+          name: true,
+          category: true,
+          phoneDetails: { select: { model: true, storage: true, color: true } },
+          type: { select: { name: true, parent: { select: { name: true } } } },
+        },
+      },
+      saleItem: {
+        select: {
+          unitPrice: true,
+          sale: {
+            select: {
+              id: true,
+              saleDate: true,
+              notes: true,
+              location: { select: { name: true } },
+              salesperson: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+    take: 2000,
+  });
+
+  return units
+    .map((unit) => ({
+      id: unit.id,
+      date: unit.saleItem!.sale.saleDate.toISOString(),
+      saleId: unit.saleItem!.sale.id,
+      branch: unit.saleItem!.sale.location.name,
+      salesperson: unit.saleItem!.sale.salesperson.name,
+      category: unit.product.category,
+      product: unit.product.name,
+      brand: unit.product.type?.parent?.name ?? unit.product.type?.name ?? null,
+      model: unit.product.phoneDetails?.model ?? null,
+      storage: unit.product.phoneDetails?.storage ?? null,
+      color: unit.product.phoneDetails?.color ?? null,
+      serial: unit.imei ?? unit.iccid ?? null,
+      price: unit.saleItem!.unitPrice.toNumber(),
+      note: unit.saleItem!.sale.notes,
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * The money each branch took each day: item sales, split into the cash kept
+ * (cash received less any change handed back) and transfers, plus National ID
+ * prints and copies. This is what the salespeople collect and hand to their
+ * supervisor. Scoped like the sales report: the Owner every branch, a
+ * supervisor theirs, a salesperson their own sales.
+ */
+export async function getDailyMoney(
+  query: { from?: string; to?: string; branchId?: string },
+  viewer: Viewer,
+) {
+  const range = dateRange(query.from, query.to).saleDate;
+  const branchOnly =
+    viewer.role === "OWNER" ? query.branchId || undefined : (viewer.branchId ?? "__none__");
+  const mineOnly = viewer.role === "SALES";
+
+  // Expenses are stamped at local midnight and deductions carry a plain day,
+  // so both are windowed by day rather than by the instant.
+  const dayWindow = {
+    ...(query.from ? { gte: startOfDay(query.from) } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  };
+  const [sales, nidOrders, nidRecords, telebirr, locations, deductions, expenses] = await Promise.all([
+    prisma.sale.findMany({
+      where: { status: "APPROVED", ...salesScope(viewer, query), ...(range ? { saleDate: range } : {}) },
+      select: {
+        saleDate: true,
+        locationId: true,
+        totalAmount: true,
+        cashReceived: true,
+        transferReceived: true,
+      },
+    }),
+    prisma.nationalIdOrder.findMany({
+      where: {
+        ...(range ? { createdAt: range } : {}),
+        ...(branchOnly ? { locationId: branchOnly } : {}),
+        ...(mineOnly ? { recordedById: viewer.userId } : {}),
+      },
+      select: { kind: true, price: true, transferAmount: true, locationId: true, createdAt: true },
+    }),
+    // The older daily National ID records; a salesperson has none of their own.
+    mineOnly
+      ? Promise.resolve([])
+      : prisma.nationalIdRecord.findMany({
+          where: { ...(range ? { date: range } : {}), ...(branchOnly ? { locationId: branchOnly } : {}) },
+          select: {
+            date: true,
+            locationId: true,
+            originalCount: true,
+            copyCount: true,
+            originalRate: true,
+            copyRate: true,
+          },
+        }),
+    prisma.telebirrTransaction.findMany({
+      where: {
+        ...(range ? { createdAt: range } : {}),
+        ...(branchOnly ? { locationId: branchOnly } : {}),
+        ...(mineOnly ? { recordedById: viewer.userId } : {}),
+      },
+      select: { amount: true, transferAmount: true, locationId: true, createdAt: true },
+    }),
+    prisma.stockLocation.findMany({ select: { id: true, name: true } }),
+    // Money lost: it comes off the day's cash (and off the person's salary).
+    prisma.deduction.findMany({
+      where: {
+        ...(query.from || query.to
+          ? { day: { ...(query.from ? { gte: query.from.slice(0, 10) } : {}), ...(query.to ? { lte: query.to.slice(0, 10) } : {}) } }
+          : {}),
+        ...(branchOnly ? { user: { branchId: branchOnly } } : {}),
+        ...(mineOnly ? { userId: viewer.userId } : {}),
+      },
+      select: { day: true, total: true, user: { select: { branchId: true } } },
+    }),
+    // Paid out of someone's cash; older expenses that name nobody stay out.
+    prisma.expense.findMany({
+      where: {
+        spentById: mineOnly ? viewer.userId : { not: null },
+        ...(query.from || query.to ? { expenseDate: dayWindow } : {}),
+        ...(branchOnly ? { locationId: branchOnly } : {}),
+      },
+      select: { amount: true, expenseDate: true, locationId: true },
+    }),
+  ]);
+
+  const dayOf = (date: Date) =>
+    `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
+  const names = new Map(locations.map((row) => [row.id, row.name]));
+  // Each kind of income on its own, split into cash kept and transfer.
+  const FIELDS = [
+    "sales", "salesCash", "salesTransfer",
+    "idOriginal", "idCopy", "idCash", "idTransfer",
+    "telebirr", "telebirrCash", "telebirrTransfer",
+    "deductions", "expenses",
+  ] as const;
+  type Row = Record<(typeof FIELDS)[number], number>;
+  const rows = new Map<string, Row>();
+  const at = (date: Date, locationId: string) => {
+    const key = `${dayOf(date)}|${locationId}`;
+    const row = rows.get(key) ?? (Object.fromEntries(FIELDS.map((field) => [field, 0])) as Row);
+    rows.set(key, row);
+    return row;
+  };
+
+  for (const sale of sales) {
+    const total = sale.totalAmount.toNumber();
+    const cash = sale.cashReceived.toNumber();
+    const transfer = sale.transferReceived.toNumber();
+    // Change goes back in cash, so it is not money kept.
+    const change = Math.max(0, cash + transfer - total);
+    const row = at(sale.saleDate, sale.locationId);
+    row.sales += total;
+    row.salesCash += Math.max(0, cash - change);
+    row.salesTransfer += transfer;
+  }
+  for (const order of nidOrders) {
+    const row = at(order.createdAt, order.locationId);
+    const price = order.price.toNumber();
+    const transfer = order.transferAmount.toNumber();
+    if (order.kind === "COPY") row.idCopy += price;
+    else row.idOriginal += price;
+    row.idCash += price - transfer;
+    row.idTransfer += transfer;
+  }
+  // The older daily records were all taken in cash.
+  for (const record of nidRecords) {
+    const row = at(record.date, record.locationId);
+    const original = record.originalRate.toNumber() * record.originalCount;
+    const copy = record.copyRate.toNumber() * record.copyCount;
+    row.idOriginal += original;
+    row.idCopy += copy;
+    row.idCash += original + copy;
+  }
+  for (const entry of telebirr) {
+    const row = at(entry.createdAt, entry.locationId);
+    const amount = entry.amount.toNumber();
+    const transfer = entry.transferAmount.toNumber();
+    row.telebirr += amount;
+    row.telebirrCash += amount - transfer;
+    row.telebirrTransfer += transfer;
+  }
+  for (const entry of deductions) {
+    if (!entry.user.branchId) continue;
+    at(new Date(`${entry.day}T12:00:00`), entry.user.branchId).deductions += entry.total.toNumber();
+  }
+  for (const entry of expenses) {
+    at(entry.expenseDate, entry.locationId).expenses += entry.amount.toNumber();
+  }
+
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return [...rows.entries()]
+    .map(([key, row]) => {
+      const [date, branchId] = key.split("|");
+      return {
+        date,
+        branchId,
+        branch: names.get(branchId) ?? "—",
+        ...(Object.fromEntries(FIELDS.map((field) => [field, round(row[field])])) as Row),
+        cash: round(row.salesCash + row.idCash + row.telebirrCash),
+        // The cash to hand in: taken in, less money lost and paid out.
+        cashLeft: round(row.salesCash + row.idCash + row.telebirrCash - row.deductions - row.expenses),
+        transfer: round(row.salesTransfer + row.idTransfer + row.telebirrTransfer),
+        total: round(row.sales + row.idOriginal + row.idCopy + row.telebirr - row.deductions - row.expenses),
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date) || a.branch.localeCompare(b.branch));
 }

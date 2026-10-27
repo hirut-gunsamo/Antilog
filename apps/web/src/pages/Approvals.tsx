@@ -1,13 +1,24 @@
 import { AuthImg, AuthLink } from '../components/AuthFile'
+import { BUSINESS_TZ } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '../auth/context'
+import {
+  BulkDeleteButton,
+  deleteSelected,
+  SelectAllCell,
+  SelectCell,
+  useSelection,
+} from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { icons } from '../components/icons'
 import { RejectDialog } from '../components/approvals/RejectDialog'
+import { ApproveItemsDialog } from '../components/requests/ApproveItemsDialog'
 import { ApproveRequestDialog } from '../components/requests/ApproveRequestDialog'
-import { CategoryDecisions } from '../components/requests/CategoryDecisions'
-import { readyToSend } from '../lib/requests'
+import { DispatchDialog } from '../components/requests/DispatchDialog'
+import { askedOfBranch, readyToSend, requestStage, requestSummary } from '../lib/requests'
 import { RequestDetails } from '../components/requests/RequestDetails'
 import { Toasts } from '../components/Toasts'
 import { api } from '../lib/api'
@@ -105,8 +116,8 @@ export default function Approvals() {
   const [search, setSearch] = useState('')
   const [branch, setBranch] = useState('ALL')
   const [status, setStatus] = useState('PENDING')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useSavedState('approvals:from', '')
+  const [to, setTo] = useSavedState('approvals:to', '')
   const [page, setPage] = useState(1)
 
   const [pending, setPending] = useState<string | null>(null)
@@ -115,6 +126,15 @@ export default function Approvals() {
     null,
   )
   const [detailsOf, setDetailsOf] = useState<ApprovalRow | null>(null)
+  // The request whose items are being approved, before it is sent.
+  const [deciding, setDeciding] = useState<StockRequest | null>(null)
+  // Every approved restock sent at once, a driver per branch.
+  // true for every branch, or one branch's id from its row's Send.
+  // A supervisor's restock open to approve and send, one car.
+  const [dispatching, setDispatching] = useState<StockRequest | null>(null)
+  // A notification lands here with ?request=<id> to open that request.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openRequestId = searchParams.get('request')
 
   const { toasts, push, dismiss } = useToasts()
   const PAGE_SIZE = usePageSize()
@@ -243,6 +263,28 @@ export default function Approvals() {
 
   const canDecide = user?.role === 'SUPERVISOR' || user?.role === 'OWNER'
 
+  // The Owner can delete requests and bank receipts from here; cash and loss
+  // reports have no delete, so they cannot be ticked.
+  const isOwner = user?.role === 'OWNER'
+  const selection = useSelection()
+  const DELETE_URL: Partial<Record<ApprovalRow['kind'], string>> = {
+    REQUEST: '/api/requests',
+    RECEIPT: '/api/receipts',
+  }
+  const keyOf = (row: ApprovalRow) => `${row.kind}:${row.id}`
+
+  async function removeSelected() {
+    const keys = [...selection.selected]
+    const url = (key: string) => {
+      const [kind, id] = key.split(':') as [ApprovalRow['kind'], string]
+      return `${DELETE_URL[kind]}/${id}`
+    }
+    if (await deleteSelected(keys, url, t, push)) {
+      selection.clear()
+      setReloadKey((n) => n + 1)
+    }
+  }
+
   const filtersOn =
     search !== '' || branch !== 'ALL' || status !== 'PENDING' || from !== '' || to !== ''
 
@@ -300,13 +342,74 @@ export default function Approvals() {
   // line has its own Approve and Reject.
   const byItem = (row: ApprovalRow) => row.kind === 'REQUEST'
 
+  // Supervisors' restocks waiting on this viewer (the Owner): each is
+  // approved and sent from one page, Approve & send.
+  const isDispatchable = (request: StockRequest) =>
+    isOwner && request.requestedBy.role !== 'SALES' && request.status === 'PENDING' && request.requestedTo?.id === user?.id
+  const waitingRestocks = (rows ?? [])
+    .filter((row) => row.kind === 'REQUEST')
+    .map((row) => row.source as StockRequest)
+    .filter(isDispatchable)
+
+  // Once the rows are in, open the request a notification pointed at: its
+  // items to approve, or Send once they are decided, else its details. Done
+  // during render, once per link, so it opens on the first frame.
+  const [openedId, setOpenedId] = useState<string | null>(null)
+  if (!openRequestId && openedId !== null) setOpenedId(null)
+  if (openRequestId && rows !== null && openedId !== openRequestId) {
+    setOpenedId(openRequestId)
+    const row = rows.find((entry) => entry.kind === 'REQUEST' && entry.id === openRequestId)
+    if (row) {
+      const request = row.source as StockRequest
+      setTab('REQUEST')
+      if (isDispatchable(request)) {
+        setDispatching(request)
+      } else if (
+        askedOfBranch(request, user) ||
+        (request.status === 'PENDING' &&
+          request.requestedTo?.id === user?.id &&
+          request.items.some((item) => item.approvedQuantity === null))
+      ) {
+        setApprovingRequest(request)
+      } else {
+        setDetailsOf(row)
+      }
+    }
+  }
+
+  // Then the link is taken off the address, so tapping it again reopens it.
+  useEffect(() => {
+    if (openRequestId && openedId === openRequestId) setSearchParams({}, { replace: true })
+  }, [openRequestId, openedId, setSearchParams])
+
+  // A salesperson's request addressed to this viewer with items still to
+  // decide (a supervisor's restock goes through Approve & send instead).
+  const toDecide = (row: ApprovalRow) => {
+    if (row.kind !== 'REQUEST') return false
+    const request = row.source as StockRequest
+    // Another branch asking this supervisor's branch is approved and sent
+    // from one page too.
+    if (askedOfBranch(request, user)) return true
+    return (
+      request.requestedBy.role === 'SALES' &&
+      request.status === 'PENDING' &&
+      request.requestedTo?.id === user?.id &&
+      request.items.some((item) => item.approvedQuantity === null)
+    )
+  }
+
   // A category decided: the Owner goes straight on to sending a restock
   // once its last category is decided.
   function onDecided(updated: StockRequest, message: string) {
     push('success', message)
     setReloadKey((n) => n + 1)
     if (detailsOf?.id === updated.id) setDetailsOf(fromRequest(updated))
-    if (readyToSend(updated, user?.id)) setApprovingRequest(updated)
+    // The approve window stays open until every item is decided, then
+    // closes. Nothing is sent from here: the Owner presses Send (or Send all)
+    // when ready, ticks what goes in the car and names the driver.
+    const left = updated.status === 'PENDING' && updated.items.some((item) => item.approvedQuantity === null)
+    if (deciding?.id === updated.id && !left) setDeciding(null)
+    else if (deciding?.id === updated.id) setDeciding(updated)
   }
 
   async function reject(row: ApprovalRow, reason: string) {
@@ -491,6 +594,12 @@ export default function Approvals() {
               <table className={styles.table}>
                 <thead>
                   <tr>
+                    {isOwner ? (
+                      <SelectAllCell
+                        ids={pageRows.filter((row) => DELETE_URL[row.kind]).map(keyOf)}
+                        selection={selection}
+                      />
+                    ) : null}
                     <th scope="col">{t('appr.reference')}</th>
                     <th scope="col">{t('req.date')}</th>
                     <th scope="col">{t('req.requestedBy')}</th>
@@ -499,7 +608,15 @@ export default function Approvals() {
                     <th scope="col">{t('req.items')}</th>
                     <th scope="col">{t('common.status')}</th>
                     <th scope="col" className={styles.actionsCol}>
-                      {t('common.actions')}
+                      {isOwner ? (
+                        <BulkDeleteButton
+                          count={selection.selected.size}
+                          busy={pending !== null}
+                          onClick={() => void removeSelected()}
+                        />
+                      ) : (
+                        t('common.actions')
+                      )}
                     </th>
                   </tr>
                 </thead>
@@ -510,6 +627,7 @@ export default function Approvals() {
                     const time = Number.isNaN(when.getTime())
                       ? ''
                       : when.toLocaleTimeString('en-GB', {
+                          timeZone: BUSINESS_TZ,
                           hour: '2-digit',
                           minute: '2-digit',
                         })
@@ -520,8 +638,16 @@ export default function Approvals() {
                         data-busy={pending === row.id}
                         data-meta={`${row.branch} · ${shortDate(row.date)} ${time}`}
                         className={styles.clickableRow}
-                        onClick={() => setDetailsOf(row)}
+                        onClick={() => (row.kind === 'REQUEST' && isDispatchable(row.source as StockRequest) ? setDispatching(row.source as StockRequest) : setDetailsOf(row))}
                       >
+                        {isOwner ? (
+                          <SelectCell
+                            id={keyOf(row)}
+                            name={row.reference}
+                            selection={selection}
+                            disabled={!DELETE_URL[row.kind]}
+                          />
+                        ) : null}
                         <td data-label={t('appr.reference')} className={styles.ref}>
                           {row.reference}
                         </td>
@@ -547,11 +673,15 @@ export default function Approvals() {
 
                         <td data-label={t('req.items')} data-lines={byItem(row) ? '' : undefined}>
                           {byItem(row) ? (
-                            <CategoryDecisions
-                              request={row.source as StockRequest}
-                              onDecided={onDecided}
-                              onError={(message) => push('error', message)}
-                            />
+                            // SIM cards, airtime, phones; each item is in the details.
+                            <ul className={styles.itemLines}>
+                              {requestSummary(row.source as StockRequest).lines.map((line) => (
+                                <li key={line.key}>
+                                  <span>{t(line.labelKey)}</span>
+                                  <span className="tabular">× {count(line.quantity)}</span>
+                                </li>
+                              ))}
+                            </ul>
                           ) : (
                             row.summary
                           )}
@@ -565,8 +695,17 @@ export default function Approvals() {
                         </td>
 
                         <td data-label={t('common.status')}>
-                          <span className={styles.status} data-state={row.state}>
-                            {row.state === 'PENDING'
+                          <span
+                            className={styles.status}
+                            data-state={
+                              row.kind === 'REQUEST' && requestStage(row.source as StockRequest) === 'WAITING_TO_SEND'
+                                ? 'APPROVED'
+                                : row.state
+                            }
+                          >
+                            {row.kind === 'REQUEST' && requestStage(row.source as StockRequest) === 'WAITING_TO_SEND'
+                              ? t('appr.statusApproved')
+                              : row.state === 'PENDING'
                               ? t('appr.statusPending')
                               : row.state === 'APPROVED'
                                 ? row.kind === 'RECEIPT'
@@ -576,6 +715,9 @@ export default function Approvals() {
                                   ? t('appr.statusRejected')
                                   : '—'}
                           </span>
+                          {row.kind === 'REQUEST' && requestStage(row.source as StockRequest) === 'WAITING_TO_SEND' ? (
+                            <span className={styles.sub}>{t('req.waitingToSend')}</span>
+                          ) : null}
                         </td>
 
                         <td
@@ -586,12 +728,46 @@ export default function Approvals() {
                             <button
                               type="button"
                               className={styles.view}
-                              onClick={() => setDetailsOf(row)}
+                              onClick={() => (row.kind === 'REQUEST' && isDispatchable(row.source as StockRequest) ? setDispatching(row.source as StockRequest) : setDetailsOf(row))}
                             >
                               {t('appr.view')}
                             </button>
 
+                            {row.kind === 'REQUEST' && isDispatchable(row.source as StockRequest) ? (
+                              <button
+                                type="button"
+                                className={styles.approve}
+                                onClick={() => setDispatching(row.source as StockRequest)}
+                              >
+                                {t(requestStage(row.source as StockRequest) === 'WAITING_TO_SEND' ? 'appr.send' : 'dispatch.open')}
+                              </button>
+                            ) : null}
+
+                            {/* A salesperson's request is approved whole, from one
+                                page, or rejected. */}
+                            {toDecide(row) ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={styles.approve}
+                                  onClick={() => setApprovingRequest(row.source as StockRequest)}
+                                >
+                                  {t('appr.approve')}
+                                </button>
+                                {(row.source as StockRequest).items.every((item) => item.approvedQuantity === null) ? (
+                                  <button
+                                    type="button"
+                                    className={styles.rejectBtn}
+                                    onClick={() => setRejecting(row)}
+                                  >
+                                    {t('appr.reject')}
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
+
                             {row.kind === 'REQUEST' &&
+                            (row.source as StockRequest).requestedBy.role === 'SALES' &&
                             readyToSend(row.source as StockRequest, user?.id) ? (
                               <button
                                 type="button"
@@ -701,6 +877,31 @@ export default function Approvals() {
         />
       ) : null}
 
+      {deciding ? (
+        <ApproveItemsDialog
+          request={deciding}
+          onClose={() => setDeciding(null)}
+          onDecided={onDecided}
+          onError={(message) => push('error', message)}
+        />
+      ) : null}
+
+      {dispatching ? (
+        <DispatchDialog
+          request={dispatching}
+          waiting={waitingRestocks}
+          onClose={() => {
+            setDispatching(null)
+            setReloadKey((n) => n + 1)
+          }}
+          onDone={(message) => {
+            setDispatching(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
+
       {approvingRequest ? (
         <ApproveRequestDialog
           request={approvingRequest}
@@ -717,8 +918,14 @@ export default function Approvals() {
         <RequestDetails
           request={detailsOf.source as StockRequest}
           onClose={() => setDetailsOf(null)}
-          onDecided={onDecided}
-          onError={(message) => push('error', message)}
+          {...(isDispatchable(detailsOf.source as StockRequest)
+            ? {
+                onDispatch: () => {
+                  setDispatching(detailsOf.source as StockRequest)
+                  setDetailsOf(null)
+                },
+              }
+            : {})}
         />
       ) : detailsOf ? (
         <ApprovalDetails row={detailsOf} onClose={() => setDetailsOf(null)} />

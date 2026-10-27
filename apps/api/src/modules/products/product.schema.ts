@@ -7,6 +7,8 @@ const baseProductSchema = z.object({
   name: z.string().min(2).max(150).optional(),
   description: z.string().max(500).optional(),
   price: z.coerce.number().nonnegative(),
+  // What the business pays for one, for profit and loss.
+  costPrice: z.coerce.number().nonnegative().nullable().optional(),
 });
 
 export const createProductSchema = baseProductSchema.extend({
@@ -25,6 +27,7 @@ export const updateProductSchema = z
     name: z.string().trim().min(2).max(150).optional(),
     description: z.string().max(500).nullable().optional(),
     price: z.coerce.number().nonnegative().optional(),
+    costPrice: z.coerce.number().nonnegative().nullable().optional(),
     // Phones only.
     model: z.string().trim().min(1).max(80).optional(),
     storage: z.string().max(40).nullable().optional(),

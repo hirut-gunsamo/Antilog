@@ -1,0 +1,579 @@
+/* The panel body is a flex column that shrinks its children to fit; these
+   blocks keep their height and the body scrolls instead. */
+.allow,
+.peopleScroll,
+.summary,
+.final,
+.items,
+.payment,
+.daySales {
+  flex-shrink: 0;
+}
+
+/* The day's final numbers: four across, two rows; the two that matter
+   most (after costs, and the yadere) stand out. */
+.final {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.final > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 11px;
+  background: var(--surface);
+}
+
+.final dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.final dd {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.final [data-tone='bad'] dd {
+  color: var(--danger);
+}
+
+.final [data-strong] {
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+}
+
+.final [data-strong] dd {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+@media (max-width: 520px) {
+  .final {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- Who, where, status ---------- */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.summary span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.summary [data-tone='bad'] strong {
+  color: var(--danger);
+}
+
+.summary strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Items ---------- */
+
+.items {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.items ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.itemsHead,
+.itemRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 90px 104px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+}
+
+.itemsHead {
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.itemsHead span:not(:first-child),
+.itemQty,
+.itemPrice,
+.itemAmount {
+  text-align: right;
+}
+
+.itemRow {
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.itemName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.itemPrice {
+  color: var(--muted);
+}
+
+/* National ID or Telebirr with nothing done: listed, but quiet. */
+.itemRow[data-zero] {
+  color: var(--muted);
+}
+
+.itemRow[data-zero] .itemName,
+.itemRow[data-zero] .itemAmount {
+  font-weight: 400;
+}
+
+.itemAmount {
+  font-weight: 600;
+}
+
+.itemsTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px;
+  border-top: 2px solid var(--border);
+  background: var(--surface-2);
+}
+
+.itemsTotal span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.itemsTotal em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.itemsTotal strong {
+  font-size: 18px;
+}
+
+/* ---------- Payment ---------- */
+
+.payment h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.payment dl {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.payment dl > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+.payment dl > div + div {
+  border-top: 1px solid var(--border);
+}
+
+.payment dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.payment dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.payment dd em {
+  display: block;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.payment [data-tone='bad'] dd {
+  color: var(--danger);
+}
+
+/* Deductions: each line, then total less deductions = what is left. */
+.payment dt em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.payment dl.net {
+  margin-top: 10px;
+}
+
+.net .netTotal {
+  background: var(--surface-2);
+}
+
+.net .netTotal dt,
+.net .netTotal dd {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ---------- Each sale of the day ---------- */
+
+.daySales h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.daySales h3 span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.daySales > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.daySales > ul > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.daySales > ul > li[data-current] {
+  box-shadow: inset 3px 0 0 var(--brand-dark, var(--brand));
+}
+
+.saleHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 14px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saleHead:hover,
+[data-open] > .saleHead {
+  background: var(--surface-2);
+}
+
+.saleWhen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.saleWhen em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.chevron {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.saleBody {
+  padding: 4px 12px 12px;
+  background: var(--surface-2);
+}
+
+.saleBody > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.saleBody > ul:first-child > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13.5px;
+}
+
+.saleBody > ul:first-child > li > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.saleBody > ul:first-child em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.salePaid {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ---------- Phone ---------- */
+
+@media (max-width: 520px) {
+  .summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .summary > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  /* No column heads: each item reads as its name, then "qty × price" and
+     the amount on one line beneath. */
+  .itemsHead {
+    display: none;
+  }
+
+  .itemRow {
+    grid-template-columns: auto 1fr auto;
+    row-gap: 4px;
+  }
+
+  .itemName {
+    grid-column: 1 / -1;
+  }
+
+  .itemQty,
+  .itemPrice {
+    text-align: left;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .itemQty::after {
+    content: ' ×';
+  }
+
+  .itemAmount {
+    text-align: right;
+  }
+
+  .saleHead {
+    grid-template-columns: minmax(0, 1fr) auto 14px;
+  }
+
+  /* The status moves under the time on a narrow screen. */
+  .saleHead > :nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+}
+
+/* The Owner's leave for a past day's corrections. */
+.allow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.allow small,
+.allow p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.allow p.asked {
+  color: var(--warning, #a87a00);
+  font-weight: 600;
+}
+
+/* A branch's salespeople, one line each. */
+.peopleScroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.people {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.people th {
+  padding: 8px 10px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.people td {
+  padding: 9px 10px;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.people tbody tr {
+  cursor: pointer;
+}
+
+.people tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.people tr.peopleTotal td {
+  font-weight: 700;
+  background: var(--surface-2);
+  cursor: default;
+}
+
+.people td[data-best] {
+  color: var(--brand-dark, var(--text));
+  background: color-mix(in srgb, var(--brand) 22%, var(--surface));
+}
+
+.bestTag {
+  display: block;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* The Sale ID leads the summary on a row of its own, so it reads in one line. */
+.summary > div:first-child {
+  grid-column: 1 / -1;
+}
+
+.summary > div:first-child strong {
+  overflow-wrap: anywhere;
+}
+
+/* "Paid by" with the salesperson's Edit beside it. */
+.payHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.payEdit {
+  padding: 5px 12px;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.payWait {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* The day's sales, each with its own Edit for how it was paid. */
+.payList {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.payList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.payList li:last-child {
+  border-bottom: none;
+}
+
+.payList em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}

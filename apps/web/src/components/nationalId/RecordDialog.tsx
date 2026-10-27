@@ -219,7 +219,6 @@ export function RecordDialog({
             <input
               type="date"
               value={date}
-              max={todayIso()}
               onChange={(event) => setDate(event.target.value)}
               disabled={editing}
               required

@@ -16,6 +16,8 @@ import {
   getRecords,
   getSummary,
   receiveBlanks,
+  updateBlanks,
+  deleteBlanks,
   updateRecord,
 } from "./nationalId.service.js";
 
@@ -205,6 +207,33 @@ export async function receiveBlanksController(
     const entry = await receiveBlanks(parsed.data, viewer);
 
     return reply.status(201).send({ message: "Blanks recorded", entry });
+  } catch (caught) {
+    return fail(reply, caught);
+  }
+}
+
+export async function updateBlanksController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const parsed = receiveBlanksSchema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ message: "Enter how many blanks arrived" });
+
+  try {
+    await updateBlanks(request.params.id, parsed.data);
+    return reply.send({ message: "Saved" });
+  } catch (caught) {
+    return fail(reply, caught);
+  }
+}
+
+export async function deleteBlanksController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  try {
+    await deleteBlanks(request.params.id);
+    return reply.send({ message: "Removed" });
   } catch (caught) {
     return fail(reply, caught);
   }

@@ -3,7 +3,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../../lib/api'
 import { useT } from '../../lib/i18n'
 import type { ProductRow } from '../../lib/types'
+import { valueFromName } from './voucherValue'
 import styles from '../inventory/Panel.module.css'
+import { BranchPrices } from './BranchPrices'
 
 /**
  * Changes what describes a product: its name, price and details.
@@ -16,10 +18,13 @@ export function EditProductDialog({
   product,
   onClose,
   onDone,
+  onNotice,
 }: {
   product: ProductRow
   onClose: () => void
   onDone: (product: ProductRow) => void
+  /** A branch price saved or removed: says so, and refreshes the list. */
+  onNotice?: (message: string) => void
 }) {
   const t = useT()
 
@@ -28,10 +33,8 @@ export function EditProductDialog({
 
   const [name, setName] = useState(product.name)
   const [price, setPrice] = useState(String(Number(product.price)))
-  const [denomination, setDenomination] = useState(
-    product.voucherDetails
-      ? String(Number(product.voucherDetails.denomination))
-      : '',
+  const [costPrice, setCostPrice] = useState(
+    product.costPrice != null ? String(Number(product.costPrice)) : '',
   )
   const [phoneModel, setPhoneModel] = useState(product.phoneDetails?.model ?? '')
   const [storage, setStorage] = useState(product.phoneDetails?.storage ?? '')
@@ -51,15 +54,18 @@ export function EditProductDialog({
   }, [onClose])
 
   const priceValue = Number(price)
-  const denominationValue = Number(denomination)
+  // Airtime's card value comes from its name, e.g. "Voucher 10".
+  const denominationValue = valueFromName(name)
 
   const valid =
     name.trim().length >= 2 &&
-    (!isVoucher ||
-      (denomination.trim() !== '' && Number.isInteger(denominationValue) && denominationValue > 0)) &&
+    (!isVoucher || denominationValue !== null) &&
+    // A phone is only known by its model and storage.
+    (!isPhone || (phoneModel.trim() !== '' && storage.trim() !== '')) &&
     price.trim() !== '' &&
     Number.isFinite(priceValue) &&
-    priceValue >= 0
+    priceValue >= 0 &&
+    (costPrice.trim() === '' || Number(costPrice) >= 0)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -72,9 +78,10 @@ export function EditProductDialog({
     const body = {
       name: name.trim(),
       description: description.trim() || null,
-      // Airtime's price is the carta price, which the Owner sets here.
-      ...(isVoucher ? { denomination: denominationValue } : {}),
+      ...(isVoucher && denominationValue !== null ? { denomination: denominationValue } : {}),
       price: priceValue,
+      // Blank clears it.
+      costPrice: costPrice.trim() === '' ? null : Number(costPrice),
       ...(isPhone
         ? {
             model: phoneModel.trim() || undefined,
@@ -136,29 +143,14 @@ export function EditProductDialog({
             />
           </label>
 
-          {isVoucher ? (
-            <label className={styles.field}>
-              <span>
-                {t('prod.denomination')}<em>{t('common.required')}</em>
-              </span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="1"
-                step="1"
-                value={denomination}
-                onChange={(event) => setDenomination(event.target.value)}
-                required
-              />
-            </label>
+          {isVoucher && denominationValue === null ? (
+            <p className={styles.error}>{t('prod.valueInName')}</p>
           ) : null}
 
-          {/* Everything has a price the Owner sets; for airtime it is the
-              price of one carta, which sales cannot change. */}
+          {/* The selling price the Owner sets; sales cannot change it. */}
           <label className={styles.field}>
             <span>
-              {t(isVoucher ? 'prod.cartaPrice' : 'prod.price')}
-              <em>{t(isVoucher ? 'prod.cartaPriceNote' : 'common.required')}</em>
+              {t('prod.price')}<em>{t('common.required')}</em>
             </span>
             <input
               type="number"
@@ -171,27 +163,45 @@ export function EditProductDialog({
             />
           </label>
 
+          {/* What the business pays for one, for profit and loss. */}
+          <label className={styles.field}>
+            <span>
+              {t('prod.costPrice')}<em>{t('prod.optional')}</em>
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={costPrice}
+              onChange={(event) => setCostPrice(event.target.value)}
+            />
+            <small className={styles.hint}>{t('prod.costPriceNote')}</small>
+          </label>
+
 
           {isPhone ? (
             <>
               <label className={styles.field}>
                 <span>
-                  {t('prod.model')}<em>{t('prod.optional')}</em>
+                  {t('prod.model')}<em>{t('common.required')}</em>
                 </span>
                 <input
                   value={phoneModel}
                   onChange={(event) => setPhoneModel(event.target.value)}
+                  required
                   maxLength={80}
                 />
               </label>
 
               <label className={styles.field}>
                 <span>
-                  {t('prod.storage')}<em>{t('prod.optional')}</em>
+                  {t('prod.storage')}<em>{t('common.required')}</em>
                 </span>
                 <input
                   value={storage}
                   onChange={(event) => setStorage(event.target.value)}
+                  required
                   maxLength={40}
                 />
               </label>
@@ -219,6 +229,8 @@ export function EditProductDialog({
               maxLength={500}
             />
           </label>
+
+          <BranchPrices product={product} onChanged={(message) => onNotice?.(message)} />
 
           {error ? <p className={styles.error}>{error}</p> : null}
 

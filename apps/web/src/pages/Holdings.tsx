@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
+import { YadereDialog } from '../components/cash/YadereDialog'
 import { NewRequestDialog } from '../components/requests/NewRequestDialog'
 import { Toasts } from '../components/Toasts'
 import { api } from '../lib/api'
@@ -28,6 +29,7 @@ export default function Holdings() {
   const [rows, setRows] = useState<Holding[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [asking, setAsking] = useState<StockRequestKind | null>(null)
+  const [settingYadere, setSettingYadere] = useState(false)
 
   const isSales = user?.role === 'SALES'
 
@@ -89,6 +91,13 @@ export default function Holdings() {
             >
               {t('hold.handBack')}
             </button>
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={() => setSettingYadere(true)}
+            >
+              {t('rcpt.yadere')}
+            </button>
           </div>
         ) : null}
       </header>
@@ -128,6 +137,16 @@ export default function Holdings() {
           onDone={(message) => {
             setAsking(null)
             push('success', `${message} ${t('hold.waiting')}`)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
+      {settingYadere ? (
+        <YadereDialog
+          onClose={() => setSettingYadere(false)}
+          onDone={(message) => {
+            setSettingYadere(false)
+            push('success', message)
             setReloadKey((n) => n + 1)
           }}
         />

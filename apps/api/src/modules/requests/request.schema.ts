@@ -19,6 +19,11 @@ export const createRequestSchema = z.object({
     .min(1, "A request needs at least one item"),
 
   notes: z.string().max(500).optional(),
+  // A supervisor asking another branch's supervisor instead of the Owner:
+  // that branch sends the goods and this one presses Received.
+  fromBranchId: z.string().min(1).optional(),
+  // Optional at hand-back time: what cash is still with the salesperson.
+  leftOnHand: z.union([z.coerce.number().min(0).max(1_000_000_000), z.null()]).optional(),
 });
 
 // The Owner approves and names the branch the stock will ship from.
@@ -47,6 +52,9 @@ export const approveRequestSchema = z.object({
       z.object({
         itemId: z.string().min(1),
         approvedQuantity: z.coerce.number().int().min(0),
+        // SIM cards handed to a salesperson: the ICCID range given.
+        iccidFrom: z.string().trim().max(40).optional(),
+        iccidTo: z.string().trim().max(40).optional(),
       }),
     )
     .optional(),

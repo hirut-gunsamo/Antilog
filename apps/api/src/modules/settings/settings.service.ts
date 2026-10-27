@@ -76,16 +76,22 @@ const TABLES = [
   "category",
   "productType",
   "product",
+  "productBranchPrice",
   "simProduct",
   "voucherProduct",
   "phoneProduct",
   "inventoryBalance",
+  "branchStock",
   "stockRequest",
   "stockRequestItem",
   "stockTransfer",
   "stockTransferItem",
   "cashReport",
   "sale",
+  "saleSimTransfer",
+  "saleBillPayment",
+  "editGrant",
+  "paymentEditGrant",
   "saleItem",
   "inventoryUnit",
   "bankReceipt",
@@ -95,11 +101,14 @@ const TABLES = [
   "payrollPayment",
   "commissionPayment",
   "commissionLine",
+  "deduction",
+  "deductionLine",
   "telebirrLoad",
   "telebirrTransaction",
   "expense",
   "nationalIdRequest",
   "nationalIdOrder",
+  "nationalIdBranchPrice",
   "stockMovement",
   "auditLog",
   "appSetting",
@@ -198,4 +207,68 @@ export async function restoreBackup(backup: {
     // A full restore is far slower than an ordinary write.
     { timeout: 120_000 },
   );
+}
+
+// Day-to-day activity and the whole catalogue, emptied to start fresh. Kept:
+// logins, branches, banks, office equipment, commission rates, settings and
+// phone-notification subscriptions.
+const ACTIVITY_TABLES = [
+  "Sale",
+  "SaleSimTransfer",
+  "SaleBillPayment",
+  "EditGrant",
+  "PaymentEditGrant",
+  "SaleItem",
+  "StockRequest",
+  "StockRequestItem",
+  "StockTransfer",
+  "StockTransferItem",
+  "StockMovement",
+  "InventoryBalance",
+  "BranchStock",
+  "InventoryUnit",
+  "SalespersonHolding",
+  "StockLossReport",
+  "CashCollection",
+  "CashReport",
+  "BankReceipt",
+  "Expense",
+  "PayrollPayment",
+  "CommissionPayment",
+  "CommissionLine",
+  "Deduction",
+  "DeductionLine",
+  "NationalIdStockEntry",
+  "NationalIdRecord",
+  "NationalIdRequest",
+  "NationalIdOrder",
+  "IbidLoad",
+  "IbidPrint",
+  "TelebirrLoad",
+  "TelebirrTransaction",
+  "SyncRecord",
+  "AuditLog",
+  // The catalogue: categories, types and products are all made again, with
+  // each product's branch prices.
+  "ProductBranchPrice",
+  "SimProduct",
+  "VoucherProduct",
+  "PhoneProduct",
+  "Product",
+  "ProductType",
+  "Category",
+];
+
+/** Erases every record and the catalogue. Owner only. */
+export async function eraseActivity(actorId: string) {
+  const tables = ACTIVITY_TABLES.map((name) => `"${name}"`).join(", ");
+
+  await prisma.$transaction(async (tx) => {
+    // No CASCADE: if a kept table pointed at one of these, Postgres refuses
+    // rather than quietly emptying that table too.
+    await tx.$executeRawUnsafe(`TRUNCATE TABLE ${tables}`);
+    await tx.auditLog.create({
+      data: { actorId, action: "ERASE_ALL_DATA", entityType: "System" },
+    });
+  });
 }

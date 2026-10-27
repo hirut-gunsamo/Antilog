@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../auth/context'
+import {
+  BulkDeleteButton,
+  deleteSelected,
+  SelectAllCell,
+  SelectCell,
+  useSelection,
+} from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { icons } from '../components/icons'
 import { DeleteProductDialog } from '../components/products/DeleteProductDialog'
@@ -16,22 +23,6 @@ import { useToasts } from '../lib/toasts'
 import type { ProductRow } from '../lib/types'
 import styles from './Products.module.css'
 
-
-/** The one line that says what this product actually is. */
-function detailOf(product: ProductRow): string {
-  if (product.simDetails) return product.simDetails.network ?? '—'
-
-  if (product.voucherDetails) {
-    return currency(Number(product.voucherDetails.denomination))
-  }
-
-  if (product.phoneDetails) {
-    const { brand, model, storage, color } = product.phoneDetails
-    return [brand, model, storage, color].filter(Boolean).join(' · ')
-  }
-
-  return '—'
-}
 
 /**
  * The catalogue: what the business sells.
@@ -55,6 +46,7 @@ export default function Products() {
   const [adding, setAdding] = useState(false)
   const [addingType, setAddingType] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const selection = useSelection()
 
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [editOf, setEditOf] = useState<ProductRow | null>(null)
@@ -105,12 +97,18 @@ export default function Products() {
     [products, category],
   )
 
-  const heldOf = (product: ProductRow) =>
-    product.inventoryBalances.reduce((sum, balance) => sum + balance.quantity, 0)
-
+  // The catalogue only: what Ethio Telecom sells. How many are held is on
+  // the Inventory page, per branch.
   const totals = {
     all: (products ?? []).length,
-    units: (products ?? []).reduce((sum, product) => sum + heldOf(product), 0),
+  }
+
+  async function removeSelected() {
+    const ids = [...selection.selected]
+    if (await deleteSelected(ids, (id) => `/api/products/${id}`, t, push)) {
+      selection.clear()
+      setReloadKey((n) => n + 1)
+    }
   }
 
   return (
@@ -138,10 +136,6 @@ export default function Products() {
         <div>
           <strong className="tabular">{count(totals.all)}</strong>
           <span>{t('prod.totalProducts')}</span>
-        </div>
-        <div>
-          <strong className="tabular">{count(totals.units)}</strong>
-          <span>{t('prod.totalUnits')}</span>
         </div>
       </div>
 
@@ -178,34 +172,47 @@ export default function Products() {
             <table className={styles.table}>
               <thead>
                 <tr>
+                  {isOwner ? (
+                    <SelectAllCell ids={rows.map((product) => product.id)} selection={selection} />
+                  ) : null}
                   <th scope="col">{t('prod.name')}</th>
-                  <th scope="col">{t('prod.sku')}</th>
                   <th scope="col">{t('prod.category')}</th>
                   <th scope="col">{t('prod.type')}</th>
-                  <th scope="col">{t('prod.details')}</th>
                   <th scope="col">{t('prod.price')}</th>
-                  <th scope="col">{t('prod.inStock')}</th>
                   {isOwner ? (
                     <th scope="col" className={styles.actionsCol}>
-                      {t('common.actions')}
+                      <BulkDeleteButton
+                        count={selection.selected.size}
+                        onClick={() => void removeSelected()}
+                      />
                     </th>
                   ) : null}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((product) => {
-                  const held = heldOf(product)
-
                   return (
                     <tr key={product.id}>
+                      {isOwner ? (
+                        <SelectCell id={product.id} name={product.name} selection={selection} />
+                      ) : null}
                       <td data-label={t('prod.name')} className={styles.strong}>
                         {product.name}
+                        {/* A phone is told apart by its model and storage. */}
+                        {product.phoneDetails ? (
+                          <em className={styles.sub}>
+                            {[
+                              product.phoneDetails.model,
+                              product.phoneDetails.storage,
+                              product.phoneDetails.color,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </em>
+                        ) : null}
                         {product.description ? (
                           <em className={styles.sub}>{product.description}</em>
                         ) : null}
-                      </td>
-                      <td data-label={t('prod.sku')} className="tabular">
-                        {product.sku}
                       </td>
                       <td data-label={t('prod.category')}>
                         {product.productCategory?.name ?? '—'}
@@ -213,12 +220,13 @@ export default function Products() {
                       <td data-label={t('prod.type')}>
                         {product.type?.name ?? '—'}
                       </td>
-                      <td data-label={t('prod.details')}>{detailOf(product)}</td>
                       <td data-label={t('prod.price')} className="tabular">
                         {currency(Number(product.price))}
-                      </td>
-                      <td data-label={t('prod.inStock')} className="tabular">
-                        {count(held)}
+                        {product.branchPrices?.length ? (
+                          <em className={styles.sub}>
+                            {t('bp.count', { n: product.branchPrices.length })}
+                          </em>
+                        ) : null}
                       </td>
                       {isOwner ? (
                         <td className={styles.actionsCol}>
@@ -310,6 +318,10 @@ export default function Products() {
           onDone={(product) => {
             setEditOf(null)
             push('success', t('prod.updated', { name: product.name }))
+            setReloadKey((n) => n + 1)
+          }}
+          onNotice={(message) => {
+            push('success', message)
             setReloadKey((n) => n + 1)
           }}
         />

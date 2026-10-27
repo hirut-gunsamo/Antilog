@@ -1,0 +1,51 @@
+/* Row actions as solid buttons, easy to spot: green for Edit and the like,
+   red for Delete and other destructive actions. */
+.actions {
+  display: inline-flex;
+  /* Side by side, never stacked; a wide row scrolls with its table. */
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.action,
+.danger {
+  padding: 5px 12px;
+  border-radius: 8px;
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action {
+  border: 1px solid #2e7d32;
+  background: #2e7d32;
+}
+
+.danger {
+  border: 1px solid #d92d20;
+  background: #d92d20;
+}
+
+.action:hover:not(:disabled) {
+  background: #276b2b;
+}
+
+.danger:hover:not(:disabled) {
+  background: #b42318;
+}
+
+.action:disabled,
+.danger:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.action:focus-visible,
+.danger:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

@@ -1,0 +1,59 @@
+.button {
+  padding: 7px 16px;
+  border: 2px solid #b42318;
+  border-radius: 8px;
+  background: #d92d20;
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.edit {
+  padding: 7px 16px;
+  border: 2px solid #1b5e20;
+  border-radius: 8px;
+  background: #2e7d32;
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Not ready yet (nothing ticked): the same green or red, just lighter. */
+.edit:disabled,
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tick {
+  width: 38px;
+}
+
+.tick input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--brand-text);
+  cursor: pointer;
+}
+
+/* Phones show rows as cards with no header row, so there is nowhere to tick
+   or press Delete; bulk delete is a desktop tool. */
+@media (max-width: 720px) {
+  .tick {
+    display: none;
+  }
+}
+
+.edit:hover:not(:disabled) {
+  background: #276b2b;
+}
+
+.button:hover:not(:disabled) {
+  background: #b42318;
+}

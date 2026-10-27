@@ -972,3 +972,103 @@
     background: var(--surface-2);
   }
 }
+
+/* A salesperson's view of a request's items: name and how many, one a line. */
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  min-width: 140px;
+}
+
+.itemList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.itemList li > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.itemList li > span:last-child {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.itemList em {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.itemList li[data-state='REJECTED'] > span:first-child {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/* Received: in the Actions column on a wide screen, under the items on a phone. */
+.receivePhone {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .receiveDesk {
+    display: none;
+  }
+
+  .receivePhone {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: 10px;
+  }
+}
+
+/* Wide screens: names in Items, numbers in Quantity, one line each so the two
+   columns stay side by side. Phones: the number beside the name. */
+.qtyInline {
+  display: none;
+}
+
+.table td[data-col='qty'] .itemList {
+  min-width: 0;
+}
+
+@media (min-width: 721px) {
+  .itemList li > span:first-child {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 720px) {
+  .qtyInline {
+    display: inline;
+  }
+
+  .table td[data-col='qty'] {
+    display: none;
+  }
+}
+
+/* A rejected line is crossed out by its name; its number just says so. */
+.table td[data-col='qty'] .itemList li[data-state='REJECTED'] > span:first-child {
+  text-decoration: none;
+}
+
+/* SIM cards handed over: their ICCID range, under the name. */
+.iccid {
+  display: block;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}

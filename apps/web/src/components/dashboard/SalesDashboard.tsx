@@ -40,7 +40,7 @@ export function SalesDashboard({ data }: { data: Dashboard }) {
 
     // Both already scoped by the API: own sales, own branch's prints.
     Promise.all([
-      api<{ sales: Sale[] }>('/api/sales', { signal: controller.signal }).catch(
+      api<{ sales: Sale[] }>('/api/sales?limit=6', { signal: controller.signal }).catch(
         () => ({ sales: [] as Sale[] }),
       ),
       api<{ summary: NationalIdSummary }>(
@@ -159,8 +159,8 @@ export function SalesDashboard({ data }: { data: Dashboard }) {
                     copy: count(prints.today.copy),
                   })}
                 </span>
-                <Link className={styles.viewAll} to="/national-id?new=1">
-                  {t('nid.addRecord')}
+                <Link className={styles.viewAll} to="/national-id">
+                  {t('common.viewAll')}
                 </Link>
               </div>
             )}

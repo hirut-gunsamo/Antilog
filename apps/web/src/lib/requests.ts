@@ -95,6 +95,21 @@ export function requestRoute(
 }
 
 /**
+ * Another branch's supervisor asked this viewer's branch for stock: any of
+ * its supervisors approves it and sends it from here.
+ */
+export function askedOfBranch(request: StockRequest, user: { role: string; branch: { id: string } | null } | null | undefined) {
+  return (
+    user?.role === 'SUPERVISOR' &&
+    request.status === 'PENDING' &&
+    request.requestedBy.role === 'SUPERVISOR' &&
+    request.requestedTo?.role === 'SUPERVISOR' &&
+    request.requestedTo.branch?.id != null &&
+    request.requestedTo.branch.id === user.branch?.id
+  )
+}
+
+/**
  * A supervisor's restock ships as one transfer: once every category is
  * decided and something was approved, the Owner sends it with the driver's
  * details.
@@ -181,4 +196,41 @@ export function requestItemRows(requests: StockRequest[]): RequestItemRow[] {
       a.category.localeCompare(b.category) ||
       a.product.localeCompare(b.product),
   )
+}
+
+/**
+ * A request's one status, for lists: approved but not yet sent reads as its
+ * own step, so a request never shows "approved" item by item while it waits.
+ */
+export function requestStage(request: StockRequest): 'PENDING' | 'WAITING_TO_SEND' | StockRequest['status'] {
+  if (
+    request.status === 'PENDING' &&
+    request.items.length > 0 &&
+    request.items.every((item) => item.approvedQuantity !== null) &&
+    request.items.some((item) => (item.approvedQuantity ?? 0) > 0)
+  ) {
+    return 'WAITING_TO_SEND'
+  }
+  return request.status
+}
+
+/**
+ * A request in a few words: how many SIM cards, airtime, phones and other
+ * items it carries (what was approved once decided, else what was asked),
+ * for a table row. The item-by-item list is in the details.
+ */
+export function requestSummary(request: StockRequest) {
+  const totals: { key: string; labelKey: TranslationKey; quantity: number }[] = [
+    { key: 'SIM_CARD', labelKey: 'ds.sims', quantity: 0 },
+    { key: 'AIRTIME_VOUCHER', labelKey: 'ds.airtime', quantity: 0 },
+    { key: 'PHONE', labelKey: 'ds.phones', quantity: 0 },
+    { key: 'OTHER', labelKey: 'ds.other', quantity: 0 },
+  ]
+  for (const item of request.items) {
+    const quantity = item.approvedQuantity ?? item.quantity
+    const group = totals.find((entry) => entry.key === item.product.category) ?? totals[3]
+    group.quantity += quantity
+  }
+  const lines = totals.filter((entry) => entry.quantity > 0)
+  return { lines, units: lines.reduce((sum, entry) => sum + entry.quantity, 0) }
 }

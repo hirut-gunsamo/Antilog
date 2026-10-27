@@ -4,12 +4,15 @@ import { loadViewer } from "../../middleware/auth.js";
 
 import {
   collectCashSchema,
+  declareYadereSchema,
   listCollectionsQuerySchema,
 } from "./collection.schema.js";
 
 import {
   collectCash,
+  declareYadere,
   getCollections,
+  getMyYadereToday,
   getTeamCash,
 } from "./collection.service.js";
 
@@ -39,6 +42,11 @@ function handleError(
       return reply.status(409).send({
         message: "That is more than this person is holding",
         inHand: (error as Error & { inHand?: number }).inHand,
+      });
+
+    case "ONLY_SALES_DECLARES_YADERE":
+      return reply.status(403).send({
+        message: "Only a salesperson can set daily yadere",
       });
 
     default:
@@ -116,4 +124,39 @@ export async function getTeamCashController(
   const team = await getTeamCash(viewer);
 
   return reply.send({ team });
+}
+
+export async function declareYadereController(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = declareYadereSchema.safeParse(request.body);
+  if (!result.success) {
+    return reply.status(400).send({
+      message: "Invalid yadere amount",
+      errors: result.error.flatten(),
+    });
+  }
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    const yadere = await declareYadere(result.data, viewer);
+    return reply.send({ yadere });
+  } catch (error) {
+    return handleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+export async function getMyYadereTodayController(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    const yadere = await getMyYadereToday(viewer);
+    return reply.send({ yadere });
+  } catch (error) {
+    return handleError(error, reply) ?? Promise.reject(error);
+  }
 }

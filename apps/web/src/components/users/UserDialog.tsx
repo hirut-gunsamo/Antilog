@@ -68,11 +68,8 @@ export function UserDialog({
     [branches],
   )
 
-  // Postgres allows one active supervisor per branch, so a branch that already
-  // has one cannot take another. Say so before the request fails.
-  const takenSupervisor =
-    role === 'SUPERVISOR' &&
-    active.find((entry) => entry.id === branchId)?.supervisor != null
+  // A branch may have several supervisors, so none is ever "taken".
+  const takenSupervisor = false
 
   // Matches the API's rule: at least 7 characters, digits and + ( ) - only.
   const phoneOk = /^[+()\d][\d\s()+-]*$/.test(phone.trim()) &&
@@ -263,7 +260,6 @@ export function UserDialog({
                   {active.map((entry) => (
                     <option key={entry.id} value={entry.id}>
                       {entry.name}
-                      {entry.supervisor ? t('dlg.hasSupervisor') : ''}
                     </option>
                   ))}
                 </select>

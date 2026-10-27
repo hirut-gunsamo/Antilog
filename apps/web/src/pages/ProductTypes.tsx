@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
 
+import {
+  BulkDeleteButton,
+  deleteSelected,
+  SelectAllCell,
+  SelectCell,
+  useSelection,
+} from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { TypeDialog } from '../components/products/TypeDialog'
 import { Toasts } from '../components/Toasts'
@@ -58,6 +66,16 @@ export default function ProductTypes() {
 
   const active = (list: TypeNode[]) => list.filter((node) => node.isActive)
 
+  const selection = useSelection()
+
+  async function removeSelected() {
+    const ids = [...selection.selected]
+    if (await deleteSelected(ids, (id) => `/api/product-types/${id}`, t, push)) {
+      selection.clear()
+      setReloadKey((n) => n + 1)
+    }
+  }
+
   return (
     <div className={base.page}>
       <header className={base.head}>
@@ -77,6 +95,11 @@ export default function ProductTypes() {
       {categories.map((category) => {
         const isPhone = category.kind === 'PHONE'
         const roots = active((types ?? []).filter((node) => node.categoryId === category.id))
+        // The nodes that get a row: a brand's models, or the type itself.
+        const rowIds = roots.flatMap((root) => {
+          const children = active(root.children)
+          return !isPhone || children.length === 0 ? [root.id] : children.map((child) => child.id)
+        })
 
         return (
           <Card key={category.id}>
@@ -103,12 +126,16 @@ export default function ProductTypes() {
                 <table className={base.table}>
                   <thead>
                     <tr>
+                      <SelectAllCell ids={rowIds} selection={selection} />
                       <th scope="col">
                         {t(isPhone ? 'prod.brand' : 'prod.typeName')}
                       </th>
                       {isPhone ? <th scope="col">{t('prod.type')}</th> : null}
                       <th scope="col" className={base.actionsCol}>
-                        {t('common.actions')}
+                        <BulkDeleteButton
+                          count={selection.selected.size}
+                          onClick={() => void removeSelected()}
+                        />
                       </th>
                     </tr>
                   </thead>
@@ -119,12 +146,13 @@ export default function ProductTypes() {
                       if (!isPhone || children.length === 0) {
                         return [
                           <tr key={root.id}>
+                            <SelectCell id={root.id} name={root.name} selection={selection} />
                             <td className={base.strong} data-label={t('prod.typeName')}>
                               {root.name}
                             </td>
                             {isPhone ? <td>—</td> : null}
                             <td className={base.actionsCol}>
-                              <button type="button" className={styles.remove} onClick={() => void remove(root)}>
+                              <button type="button" className={rowStyles.danger} onClick={() => void remove(root)}>
                                 {t('prod.delete')}
                               </button>
                             </td>
@@ -134,12 +162,13 @@ export default function ProductTypes() {
 
                       return children.map((child, index) => (
                         <tr key={child.id}>
+                          <SelectCell id={child.id} name={child.name} selection={selection} />
                           <td className={base.strong} data-label={t('prod.brand')}>
                             {index === 0 ? root.name : ''}
                           </td>
                           <td data-label={t('prod.type')}>{child.name}</td>
                           <td className={base.actionsCol}>
-                            <button type="button" className={styles.remove} onClick={() => void remove(child)}>
+                            <button type="button" className={rowStyles.danger} onClick={() => void remove(child)}>
                               {t('prod.delete')}
                             </button>
                           </td>

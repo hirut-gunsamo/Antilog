@@ -4,7 +4,7 @@ import { useAuth } from '../../auth/context'
 import { api } from '../../lib/api'
 import { count } from '../../lib/format'
 import { useT } from '../../lib/i18n'
-import type { BranchRow, NationalIdBlankBalance } from '../../lib/types'
+import type { BranchRow, NationalIdBlankBalance, NationalIdBlankEntry } from '../../lib/types'
 import styles from '../inventory/Panel.module.css'
 
 /**
@@ -17,10 +17,13 @@ import styles from '../inventory/Panel.module.css'
  */
 export function ReceiveBlanksDialog({
   balances,
+  editing,
   onClose,
   onDone,
 }: {
   balances: NationalIdBlankBalance[]
+  /** An arrival the Owner corrects; its branch stays. */
+  editing?: NationalIdBlankEntry
   onClose: () => void
   onDone: (message: string) => void
 }) {
@@ -29,10 +32,10 @@ export function ReceiveBlanksDialog({
 
   const isOwner = user?.role === 'OWNER'
 
-  const [branchId, setBranchId] = useState('')
-  const [original, setOriginal] = useState('')
-  const [copy, setCopy] = useState('')
-  const [note, setNote] = useState('')
+  const [branchId, setBranchId] = useState(editing?.location.id ?? '')
+  const [original, setOriginal] = useState(editing ? String(editing.originalAdded) : '')
+  const [copy, setCopy] = useState(editing ? String(editing.copyAdded) : '')
+  const [note, setNote] = useState(editing?.note ?? '')
 
   const [branches, setBranches] = useState<BranchRow[]>([])
   const [busy, setBusy] = useState(false)
@@ -85,21 +88,23 @@ export function ReceiveBlanksDialog({
     setError(null)
 
     try {
-      await api('/api/national-id/blanks', {
-        method: 'POST',
+      await api(editing ? `/api/national-id/blanks/${editing.id}` : '/api/national-id/blanks', {
+        method: editing ? 'PATCH' : 'POST',
         body: {
           originalAdded: originalValue,
           copyAdded: copyValue,
-          ...(isOwner ? { locationId: branchId } : {}),
+          ...(isOwner && !editing ? { locationId: branchId } : {}),
           ...(note.trim() ? { note: note.trim() } : {}),
         },
       })
 
       onDone(
-        t('nid.blanksAdded', {
-          original: count(originalValue),
-          copy: count(copyValue),
-        }),
+        editing
+          ? t('nid.blanksEdited')
+          : t('nid.blanksAdded', {
+              original: count(originalValue),
+              copy: count(copyValue),
+            }),
       )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('nid.saveFailed'))
@@ -114,12 +119,12 @@ export function ReceiveBlanksDialog({
         className={styles.panel}
         role="dialog"
         aria-modal="true"
-        aria-label={t('nid.receiveBlanks')}
+        aria-label={t(editing ? 'nid.editBlanks' : 'nid.receiveBlanks')}
         onClick={(event) => event.stopPropagation()}
       >
         <header className={styles.head}>
           <div>
-            <h2>{t('nid.receiveBlanks')}</h2>
+            <h2>{t(editing ? 'nid.editBlanks' : 'nid.receiveBlanks')}</h2>
             <p>{t('nid.receiveNote')}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={t('common.close')}>
@@ -128,7 +133,7 @@ export function ReceiveBlanksDialog({
         </header>
 
         <form className={styles.body} onSubmit={handleSubmit}>
-          {isOwner ? (
+          {isOwner && !editing ? (
             <label className={styles.field}>
               <span>
                 {t('common.branch')}

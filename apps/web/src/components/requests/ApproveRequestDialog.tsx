@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 
+import { useAuth } from '../../auth/context'
 import { api } from '../../lib/api'
 import { useT } from '../../lib/i18n'
 import { count } from '../../lib/format'
 import { requestRef, requestUnitCount } from '../../lib/requests'
 import type { BranchRow, InventoryBalance, StockRequest } from '../../lib/types'
+import { cartaSuffix } from '../../lib/stock'
 import styles from '../inventory/Panel.module.css'
 
 /**
@@ -24,20 +26,34 @@ export function ApproveRequestDialog({
   onDone: (message: string) => void
 }) {
   const t = useT()
+  const { user } = useAuth()
+
+  // A supervisor answering another branch's request sends from their own
+  // branch; there is nothing to choose.
+  const ownBranch = user?.role === 'SUPERVISOR' && request.requestedBy.role !== 'SALES' ? user.branch ?? null : null
 
   // A salesperson's request is handed over inside the branch, so nothing
   // ships and there is no source to name.
   const needsSource = request.requestedBy.role !== 'SALES'
+  // The Owner chooses which branch ships; a supervisor ships their own.
+  const picksSource = needsSource && ownBranch === null
 
   // Items already approved or rejected one by one: only the approved ones are
   // sent, at the amount asked for, and none of it is edited here.
-  const decided = request.items.some((item) => item.approvedQuantity !== null)
-  const items = decided
-    ? request.items.filter((item) => (item.approvedQuantity ?? 0) > 0)
-    : request.items
+  // A salesperson's request is approved whole here: every item still to
+  // decide, its amount editable. (Items an older version decided one by one
+  // keep that decision and are not shown again.)
+  const bySales = request.requestedBy.role === 'SALES'
+  const decided = !bySales && request.items.some((item) => item.approvedQuantity !== null)
+  const items = bySales
+    ? request.items.filter((item) => item.approvedQuantity === null)
+    : decided
+      ? request.items.filter((item) => (item.approvedQuantity ?? 0) > 0)
+      : request.items
+  const approvedBefore = bySales && request.items.some((item) => (item.approvedQuantity ?? 0) > 0)
 
   const [branches, setBranches] = useState<BranchRow[] | null>(null)
-  const [sourceBranchId, setSourceBranchId] = useState('')
+  const [sourceBranchId, setSourceBranchId] = useState(ownBranch?.id ?? '')
   // Restock from the main warehouse, or transfer from another branch.
   const [sourceMode, setSourceMode] = useState<'MAIN' | 'BRANCH'>('MAIN')
   const [note, setNote] = useState('')
@@ -75,7 +91,7 @@ export function ApproveRequestDialog({
   }, [onClose])
 
   useEffect(() => {
-    if (!needsSource) return
+    if (!picksSource) return
 
     const controller = new AbortController()
 
@@ -97,7 +113,7 @@ export function ApproveRequestDialog({
     void load()
 
     return () => controller.abort()
-  }, [needsSource])
+  }, [picksSource])
 
   // What the chosen branch holds, so the Owner can see why they might
   // approve less before the API refuses a shipment it cannot cover.
@@ -142,7 +158,7 @@ export function ApproveRequestDialog({
     [branches, request.requestedBy.branch?.id, sourceMode],
   )
 
-  const sourceName = sources.find((entry) => entry.id === sourceBranchId)?.name
+  const sourceName = ownBranch?.name ?? sources.find((entry) => entry.id === sourceBranchId)?.name
   const stock =
     stockOf !== null && stockOf.branchId === sourceBranchId
       ? stockOf.byProduct
@@ -183,10 +199,16 @@ export function ApproveRequestDialog({
   const canSubmit =
     !busy &&
     allValid &&
-    approving > 0 &&
+    (approving > 0 || approvedBefore) &&
     !anyOverStock &&
     driverOk &&
     (!needsSource || sourceBranchId !== '')
+
+  // SIM cards handed to a salesperson can go with their ICCID range, first
+  // and last, so the sale needs no card numbers. Optional.
+  const [ranges, setRanges] = useState<Record<string, { from: string; to: string }>>({})
+  const needsRange = (line: (typeof lines)[number]) =>
+    bySales && request.kind === 'ISSUE' && line.item.product.category === 'SIM_CARD' && line.qty > 0
 
   function setQuantity(itemId: string, value: string) {
     setQuantities((current) => ({ ...current, [itemId]: value }))
@@ -240,6 +262,12 @@ export function ApproveRequestDialog({
                 items: lines.map((line) => ({
                   itemId: line.item.id,
                   approvedQuantity: line.qty,
+                  ...(needsRange(line)
+                    ? {
+                        iccidFrom: ranges[line.item.id]?.from.trim(),
+                        iccidTo: ranges[line.item.id]?.to.trim(),
+                      }
+                    : {}),
                 })),
               }),
         },
@@ -297,7 +325,13 @@ export function ApproveRequestDialog({
             })}
           </p>
 
-          {needsSource ? (
+          {ownBranch ? (
+            <p className={styles.field}>
+              {t('dlg.shipFrom')}: <strong>{ownBranch.name}</strong>
+            </p>
+          ) : null}
+
+          {picksSource ? (
             <>
               <label className={styles.field}>
                 <span>{t('dlg.sendHow')}</span>
@@ -344,7 +378,7 @@ export function ApproveRequestDialog({
                 <strong>{line.item.product.name}</strong>
                 <em className={styles.sub}>
                   {line.item.product.sku} ·{' '}
-                  {t('dlg.requestedN', { n: count(line.item.quantity) })}
+                  {t('dlg.requestedN', { n: `${count(line.item.quantity)}${cartaSuffix(line.item.product.category)}` })}
                 </em>
               </div>
 
@@ -367,6 +401,45 @@ export function ApproveRequestDialog({
                   required
                 />
               </label>
+
+              {needsRange(line) ? (
+                <div className={styles.iccidRange}>
+                  <label className={styles.field}>
+                    <span>
+                      {t('iccid.from')}<em>{t('common.optional')}</em>
+                    </span>
+                    <input
+                      value={ranges[line.item.id]?.from ?? ''}
+                      onChange={(event) =>
+                        setRanges((current) => ({
+                          ...current,
+                          [line.item.id]: { from: event.target.value, to: current[line.item.id]?.to ?? '' },
+                        }))
+                      }
+                      inputMode="numeric"
+                      maxLength={40}
+                      placeholder="8925101…020"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>
+                      {t('iccid.to')}<em>{t('common.optional')}</em>
+                    </span>
+                    <input
+                      value={ranges[line.item.id]?.to ?? ''}
+                      onChange={(event) =>
+                        setRanges((current) => ({
+                          ...current,
+                          [line.item.id]: { from: current[line.item.id]?.from ?? '', to: event.target.value },
+                        }))
+                      }
+                      inputMode="numeric"
+                      maxLength={40}
+                      placeholder="8925101…040"
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               {!line.valid ? (
                 <p className={styles.lineWarn}>

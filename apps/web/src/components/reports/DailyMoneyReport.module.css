@@ -1,0 +1,29 @@
+/* A day's total under its branches, when more than one branch sold. */
+.dayTotal td {
+  font-weight: 700;
+  background: var(--surface-2);
+}
+
+/* The heading over each kind of income's columns. */
+.group {
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* On a wide screen each kind of income sits in its own framed block: a
+   line where it starts, and every other block lightly shaded. On a phone
+   the table becomes cards, where the labels already say which is which. */
+@media (min-width: 721px) {
+  .grouped .groupStart {
+    border-left: 2px solid color-mix(in srgb, var(--text) 25%, transparent);
+  }
+
+  .grouped [data-band='1'] {
+    background: var(--surface-2);
+  }
+
+  .grouped th {
+    border-bottom: 1px solid var(--border);
+  }
+}

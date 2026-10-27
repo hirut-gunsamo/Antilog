@@ -125,7 +125,7 @@ export function EditRowDialog({
           <div>
             <h2>{t('dlg.editItem')}</h2>
             <p className="tabular">
-              {balance.product.sku} · {balance.location.name}
+              {balance.location.name}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label={t('common.close')}>

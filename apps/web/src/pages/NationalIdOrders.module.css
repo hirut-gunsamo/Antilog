@@ -1,0 +1,79 @@
+/* The Owner's tick lists: waiting names to approve, approved names printed. */
+
+.all {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-left: 24px;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 6px 2px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.row input {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  margin: 1px 0 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.row span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A waiting name with its own Approve beside it. */
+.line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approve {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 7px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand-text);
+  cursor: pointer;
+}
+
+.approve:hover:not(:disabled) {
+  background: var(--brand-subtle);
+}
+
+.approve:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

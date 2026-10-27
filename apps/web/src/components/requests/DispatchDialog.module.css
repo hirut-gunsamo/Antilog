@@ -1,0 +1,194 @@
+/* Approve & send: the requests in the car, the IDs going back, the driver. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.card[data-off] {
+  opacity: 0.6;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.cardHead strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.cardHead em {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.removeLink {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 14px 8px;
+}
+
+.rowHead,
+.row,
+.tickRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 96px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.rowHead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rowHead span:not(:first-child),
+.row > span:nth-child(2) {
+  text-align: right;
+}
+
+.row {
+  border-top: 1px dashed var(--border);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.row input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  text-align: right;
+}
+
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tickRow {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  border-top: 1px dashed var(--border);
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tickRow:first-child {
+  border-top: 0;
+}
+
+.tickRow input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+.driver {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.approved {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--success-subtle, var(--brand-subtle));
+  color: var(--success-text, var(--brand-text));
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Approve sits in the form's column; it must not grow to fill it. */
+.approveButton {
+  flex: 0 0 auto;
+  min-height: 46px;
+}
+
+/* What the store has, under each item; red when it is not enough. */
+.free {
+  display: block;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.row[data-short] .free {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.row[data-short] input {
+  border-color: var(--danger);
+}
+
+/* Send asks first: what goes, in which car, then Yes, send or Discard. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 14px;
+  border: 2px solid var(--brand);
+  border-radius: 12px;
+  background: var(--brand-subtle);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.confirm strong {
+  font-size: 15px;
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.addEquipment {
+  align-self: flex-start;
+  flex-shrink: 0;
+  padding: 9px 14px;
+  border: 1px dashed var(--brand);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-text);
+  cursor: pointer;
+}

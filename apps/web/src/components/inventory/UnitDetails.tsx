@@ -46,7 +46,7 @@ export function UnitDetails({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const state = stockStatus(balance.product.category, balance.onShelf)
+  const state = stockStatus(balance.product.category, balance.quantity)
 
   // The movement list is every branch's history for this product, so label
   // each row with where it came from and went to.
@@ -64,7 +64,7 @@ export function UnitDetails({
         <header className={styles.head}>
           <div>
             <h2>{balance.product.name}</h2>
-            <p className="tabular">{balance.product.sku}</p>
+            <p>{balance.location.name}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={t('common.close')}>
             ✕

@@ -19,24 +19,30 @@ function useEscape(onClose: () => void) {
   }, [onClose])
 }
 
-/** The Owner adds birr to the main Ibid balance. */
+/** The Owner adds birr to one branch's own EVD balance. */
 export function LoadIbidDialog({
+  balances,
+  initialBranchId,
   onClose,
   onDone,
 }: {
+  balances: { id: string; name: string; balance: number }[]
+  initialBranchId?: string
   onClose: () => void
-  onDone: (amount: number) => void
+  onDone: (amount: number, branchName: string) => void
 }) {
   const t = useT()
   useEscape(onClose)
 
+  const [branchId, setBranchId] = useState(initialBranchId ?? '')
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const branch = balances.find((row) => row.id === branchId) ?? balances[0]
   const value = Number(amount)
-  const valid = amount.trim() !== '' && value > 0
+  const valid = branch != null && amount.trim() !== '' && value > 0
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -48,9 +54,13 @@ export function LoadIbidDialog({
     try {
       await api('/api/ibid/loads', {
         method: 'POST',
-        body: { amount: value, ...(note.trim() ? { note: note.trim() } : {}) },
+        body: {
+          amount: value,
+          branchId: branch.id,
+          ...(note.trim() ? { note: note.trim() } : {}),
+        },
       })
-      onDone(value)
+      onDone(value, branch.name)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save it.')
     } finally {
@@ -80,6 +90,19 @@ export function LoadIbidDialog({
         <form className={styles.body} onSubmit={handleSubmit}>
           <label className={styles.field}>
             <span>
+              {t('common.branch')}<em>{t('common.required')}</em>
+            </span>
+            <select value={branch?.id ?? ''} onChange={(event) => setBranchId(event.target.value)}>
+              {balances.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className={styles.field}>
+            <span>
               {t('ibid.amountBirr')}<em>{t('common.required')}</em>
             </span>
             <input
@@ -94,6 +117,21 @@ export function LoadIbidDialog({
               required
             />
           </label>
+
+          {branch ? (
+            <dl className={styles.facts}>
+              <div>
+                <dt>{t('ibid.balanceNow')}</dt>
+                <dd className="tabular">{currency(branch.balance)}</dd>
+              </div>
+              <div>
+                <dt>{t('ibid.balanceAfter')}</dt>
+                <dd className="tabular">
+                  <strong>{currency(branch.balance + (value > 0 ? value : 0))}</strong>
+                </dd>
+              </div>
+            </dl>
+          ) : null}
 
           <label className={styles.field}>
             <span>
@@ -119,19 +157,27 @@ export function LoadIbidDialog({
 }
 
 /**
- * A branch records Ibid it printed: one value, and how many carta (20 cards
- * each) and loose cards. The birr it comes to is taken off the main balance.
+ * A branch records EVD it printed: one value, and how many carta (20 cards
+ * each) and loose cards. The birr it comes to is taken off that branch's
+ * own balance.
  */
 export function PrintIbidDialog({
   values,
-  balance,
+  balance: ownBalance,
+  balances,
   onClose,
   onDone,
+  editing,
 }: {
   values: number[]
+  /** The supervisor's own branch balance. */
   balance: number
+  /** Every branch's balance, for the Owner recording for a branch. */
+  balances: { id: string; balance: number }[]
   onClose: () => void
   onDone: (message: string) => void
+  /** A print being corrected: the form opens filled in with it. */
+  editing?: { id: string; denomination: number | null; cards: number | null; amount: string; note: string | null; branch: { id: string } | null }
 }) {
   const t = useT()
   useEscape(onClose)
@@ -139,10 +185,10 @@ export function PrintIbidDialog({
   const { user } = useAuth()
   const isOwner = user?.role === 'OWNER'
 
-  const [denomination, setDenomination] = useState(values[0] ?? 10)
-  const [cartas, setCartas] = useState('')
-  const [loose, setLoose] = useState('')
-  const [note, setNote] = useState('')
+  const [denomination, setDenomination] = useState(editing?.denomination ?? values[0] ?? 10)
+  const [cartas, setCartas] = useState(editing?.cards ? String(Math.floor(editing.cards / CARDS_PER_CARTA)) : '')
+  const [loose, setLoose] = useState(editing?.cards ? String(editing.cards % CARDS_PER_CARTA || '') : '')
+  const [note, setNote] = useState(editing?.note ?? '')
   const [branches, setBranches] = useState<BranchRow[]>([])
   const [branchId, setBranchId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -162,6 +208,14 @@ export function PrintIbidDialog({
   const validBranchId = branches.some((row) => row.id === branchId)
     ? branchId
     : (branches[0]?.id ?? '')
+  // Each branch prints only from its own EVD balance; a corrected print
+  // first puts its own amount back.
+  const balance =
+    (editing
+      ? (balances.find((row) => row.id === editing.branch?.id)?.balance ?? ownBalance)
+      : isOwner
+        ? (balances.find((row) => row.id === validBranchId)?.balance ?? 0)
+        : ownBalance) + (editing ? Number(editing.amount) : 0)
 
   const whole = (text: string) => {
     const n = Number(text)
@@ -171,7 +225,7 @@ export function PrintIbidDialog({
   const counted = Number.isFinite(cards) && cards > 0
   const value = counted ? cards * denomination : 0
   const enough = value <= balance
-  const valid = counted && enough && (!isOwner || validBranchId !== '')
+  const valid = counted && enough && (editing != null || !isOwner || validBranchId !== '')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -181,6 +235,19 @@ export function PrintIbidDialog({
     setError(null)
 
     try {
+      if (editing) {
+        await api(`/api/ibid/prints/${editing.id}`, {
+          method: 'PATCH',
+          body: {
+            denomination,
+            cartas: whole(cartas),
+            cards: whole(loose),
+            ...(note.trim() ? { note: note.trim() } : {}),
+          },
+        })
+        onDone(t('ibid.printEdited', { cards: cartaText(t, cards), value: denomination }))
+        return
+      }
       await api('/api/ibid/prints', {
         method: 'POST',
         body: {
@@ -219,7 +286,7 @@ export function PrintIbidDialog({
         </header>
 
         <form className={styles.body} onSubmit={handleSubmit}>
-          {isOwner ? (
+          {isOwner && !editing ? (
             <label className={styles.field}>
               <span>
                 {t('common.branch')}<em>{t('common.required')}</em>
@@ -244,7 +311,7 @@ export function PrintIbidDialog({
             >
               {values.map((option) => (
                 <option key={option} value={option}>
-                  Ibid {option}
+                  EVD {option}
                 </option>
               ))}
             </select>

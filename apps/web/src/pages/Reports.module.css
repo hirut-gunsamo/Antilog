@@ -961,7 +961,97 @@
   background: var(--brand-dark);
 }
 
+/* A card heading that opens and closes the card's list. */
+.cardToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardToggle > span:first-child > span {
+  display: block;
+}
+
+.cardArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  color: var(--text-2);
+}
+
+/* A total row that opens to its items. */
+.groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+}
+
+.groupToggle span {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-2);
+}
+
+/* Show/hide the rows behind each report's totals. */
+.detailButton {
+  margin-left: auto;
+  padding: 9px 15px;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.detailButton[aria-expanded='true'] {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Totals only: a table with a total row shows just that row under its
+   headings; summary tables without one stay whole. */
+.totalsOnly table:has(> tfoot) > tbody {
+  display: none;
+}
+
 @media (max-width: 560px) {
+  .detailButton {
+    width: 100%;
+    margin-left: 0;
+  }
+
   .quickExport {
     align-items: stretch;
     flex-direction: column;
@@ -1009,4 +1099,49 @@
 .reqResult[data-result='PENDING'] {
   background: var(--warning-subtle);
   color: #a87a00;
+}
+
+/* The period's totals under the sales-by-day table: a grid of small
+   figures that wraps on a narrow screen. */
+.periodTotals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px;
+  margin: 14px 0 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--border);
+}
+
+.periodTotals > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 13px;
+  background: var(--surface);
+}
+
+.periodTotals dt {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.periodTotals dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.periodTotals [data-tone='bad'] dd {
+  color: var(--danger);
+}
+
+.periodTotals [data-strong] {
+  background: var(--surface-2);
+}
+
+.periodTotals [data-strong] dd {
+  font-size: 16px;
+  font-weight: 700;
 }

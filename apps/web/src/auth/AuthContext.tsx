@@ -15,10 +15,13 @@ import { AuthContext } from './context'
 // the token on every request, so a stale copy cannot widen anyone's access.
 const PROFILE_KEY = 'sim.profile'
 
+/** Idle time after which the password is asked again. */
+const IDLE_LIMIT_MS = 60 * 60 * 1000
+
 function saveProfile(user: CurrentUser | null) {
   try {
-    if (user) localStorage.setItem(PROFILE_KEY, JSON.stringify(user))
-    else localStorage.removeItem(PROFILE_KEY)
+    if (user) sessionStorage.setItem(PROFILE_KEY, JSON.stringify(user))
+    else sessionStorage.removeItem(PROFILE_KEY)
   } catch {
     // Without storage the app simply cannot open offline.
   }
@@ -26,7 +29,7 @@ function saveProfile(user: CurrentUser | null) {
 
 function savedProfile(): CurrentUser | null {
   try {
-    const raw = localStorage.getItem(PROFILE_KEY)
+    const raw = sessionStorage.getItem(PROFILE_KEY)
     return raw ? (JSON.parse(raw) as CurrentUser) : null
   } catch {
     return null
@@ -118,6 +121,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     saveProfile(null)
     setUser(null)
   }, [])
+
+  // Signed out after a stretch with no taps, clicks or typing, so a device
+  // left open does not stay in someone's account.
+  useEffect(() => {
+    if (!user) return
+    let last = Date.now()
+    const touch = () => {
+      last = Date.now()
+    }
+    const events = ['pointerdown', 'keydown', 'scroll', 'touchstart'] as const
+    for (const name of events) window.addEventListener(name, touch, { passive: true })
+    const timer = window.setInterval(() => {
+      if (Date.now() - last > IDLE_LIMIT_MS) logout()
+    }, 30_000)
+    return () => {
+      for (const name of events) window.removeEventListener(name, touch)
+      window.clearInterval(timer)
+    }
+  }, [user, logout])
 
   const value = useMemo(
     () => ({ user, loading, login, logout, refresh }),

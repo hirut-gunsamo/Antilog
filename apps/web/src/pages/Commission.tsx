@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
 
 import { Card, Empty } from '../components/Card'
 import { CommissionDialog } from '../components/payroll/CommissionDialog'
@@ -182,10 +183,10 @@ export default function Commission() {
                     </td>
                     <td className={base.actionsCol}>
                       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-                        <button type="button" className={styles.link} style={{ margin: 0 }} onClick={() => setForm(row)}>
+                        <button type="button" className={rowStyles.action} style={{ margin: 0 }} onClick={() => setForm(row)}>
                           {t('prod.edit')}
                         </button>
-                        <button type="button" className={styles.remove} onClick={() => void remove(row)}>
+                        <button type="button" className={rowStyles.danger} onClick={() => void remove(row)}>
                           {t('prod.delete')}
                         </button>
                       </div>
@@ -203,10 +204,11 @@ export default function Commission() {
           month={month}
           editing={form === 'new' ? null : form}
           onClose={() => setForm(null)}
-          onDone={(name, total) => {
+          onDone={(names, total, skipped) => {
             const wasEdit = form !== 'new'
             setForm(null)
-            push('success', t(wasEdit ? 'pay.updated' : 'com.paidToast', { name, amount: currency(total) }))
+            push('success', t(wasEdit ? 'pay.updated' : 'com.paidToast', { name: names, amount: currency(total) }))
+            if (skipped.length > 0) push('info', t('com.skipped', { names: skipped.join(', ') }))
             reload()
           }}
         />

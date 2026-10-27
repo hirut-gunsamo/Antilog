@@ -1,4 +1,7 @@
 import { AuthImg, AuthLink } from '../components/AuthFile'
+import rowStyles from '../components/RowMenu.module.css'
+import { businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../auth/context'
@@ -54,7 +57,7 @@ function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 export default function Receipts() {
@@ -68,8 +71,8 @@ export default function Receipts() {
   const [search, setSearch] = useState('')
   const [branch, setBranch] = useState('ALL')
   const [status, setStatus] = useState('ALL')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useSavedState('receipts:from', '')
+  const [to, setTo] = useSavedState('receipts:to', '')
   const [page, setPage] = useState(1)
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -77,6 +80,7 @@ export default function Receipts() {
   const [detailsOf, setDetailsOf] = useState<BankReceipt | null>(null)
   const [rejecting, setRejecting] = useState<BankReceipt | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [editingReceipt, setEditingReceipt] = useState<BankReceipt | null>(null)
   const [pending, setPending] = useState<string | null>(null)
 
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -219,10 +223,9 @@ export default function Receipts() {
     safePage * PAGE_SIZE,
   )
 
-  // Sales and Supervisors upload; Supervisors and the Owner verify.
-  // The supervisor banks the branch's cash, so they upload the slip. A
-  // salesperson hands their takings over and never goes to the bank.
-  const canUpload = user?.role === 'SUPERVISOR' || user?.role === 'OWNER'
+  // Salespeople bank their own takings and upload the slip; the supervisor
+  // (or the Owner) verifies it before it counts as banked.
+  const canUpload = user?.role === 'SALES' || user?.role === 'SUPERVISOR' || user?.role === 'OWNER'
   const canVerify = user?.role === 'SUPERVISOR' || user?.role === 'OWNER'
 
   const filtersOn =
@@ -263,6 +266,35 @@ export default function Receipts() {
         'error',
         caught instanceof Error ? caught.message : t('rcpt.verifyFailed'),
       )
+    } finally {
+      setPending(null)
+    }
+  }
+
+  // Sales and supervisors delete their own: before it is verified, or while
+  // the Owner has allowed changes to it (24 hours).
+  const canDelete = (receipt: BankReceipt) =>
+    user?.role === 'OWNER' ||
+    (receipt.uploadedBy.id === user?.id &&
+      (receipt.status !== 'VERIFIED' ||
+        (receipt.editAllowedUntil != null && new Date(receipt.editAllowedUntil) > new Date())))
+
+  async function remove(receipt: BankReceipt) {
+    setOpenMenu(null)
+    if (!window.confirm(t('rcpt.deleteConfirm', { ref: receiptRef(receipt) }))) return
+    setPending(receipt.id)
+
+    try {
+      await api(`/api/receipts/${receipt.id}`, { method: 'DELETE' })
+      push('success', t('rcpt.deleted', { ref: receiptRef(receipt) }))
+      setSelected((current) => {
+        const next = new Set(current)
+        next.delete(receipt.id)
+        return next
+      })
+      setReloadKey((n) => n + 1)
+    } catch (caught) {
+      push('error', caught instanceof Error ? caught.message : t('rcpt.deleteFailed'))
     } finally {
       setPending(null)
     }
@@ -408,8 +440,8 @@ export default function Receipts() {
         </div>
 
         <div className={styles.headActions}>
-          {/* Uploading is for the people who bank the cash; the Owner verifies
-              rather than deposits, so the API does not let them upload. */}
+          {/* Uploading is for the people who bank the cash: salespeople bank
+              their own takings, and the supervisor verifies each slip. */}
           {canUpload ? (
             <button
               className={styles.primary}
@@ -417,7 +449,7 @@ export default function Receipts() {
               onClick={() => setUploading(true)}
             >
               <Icon name="plus" size={15} />
-              {t('rcpt.upload')}
+              {t(user?.role === 'SALES' ? 'rcpt.uploadBank' : 'rcpt.upload')}
             </button>
           ) : null}
         </div>
@@ -653,10 +685,14 @@ export default function Receipts() {
                       </td>
 
                       <td data-label={t('rcpt.yadere')} className="tabular">
-                        {receipt.yadere != null ? currency(Number(receipt.yadere)) : '—'}
+                        {receipt.daySales != null
+                          ? currency(Number(receipt.daySales))
+                          : receipt.yadere != null
+                            ? currency(Number(receipt.yadere))
+                            : '—'}
                         {receipt.daySales != null ? (
                           <span className={styles.sub}>
-                            {t('rcpt.ofSales', { amount: currency(Number(receipt.daySales)) })}
+                            {t('dlg.yadereAfter')}: {currency(Number(receipt.yadere ?? 0))}
                           </span>
                         ) : null}
                       </td>
@@ -705,32 +741,9 @@ export default function Receipts() {
                         className={styles.actionsCol}
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <div className={styles.menuWrap}>
-                          <button
-                            className={styles.iconButton}
-                            type="button"
-                            aria-label={t('a11y.actionsFor', { name: receiptRef(receipt) })}
-                            aria-haspopup="menu"
-                            aria-expanded={openMenu === receipt.id}
-                            disabled={pending === receipt.id}
-                            onClick={() =>
-                              setOpenMenu(
-                                openMenu === receipt.id ? null : receipt.id,
-                              )
-                            }
-                          >
-                            <Icon name="more" size={16} />
-                          </button>
-
-                          {openMenu === receipt.id ? (
-                            <div
-                              className={styles.menu}
-                              role="menu"
-                              ref={menuRef}
-                            >
-                              <button
+                        <div className={rowStyles.actions}>
+                              <button className={rowStyles.action}
                                 type="button"
-                                role="menuitem"
                                 onClick={() => {
                                   setDetailsOf(receipt)
                                   setOpenMenu(null)
@@ -741,7 +754,6 @@ export default function Receipts() {
 
                               {receipt.fileUrl ? (
                                 <AuthLink
-                                  role="menuitem"
                                   href={receipt.fileUrl}
                                   download
                                   onClick={() => setOpenMenu(null)}
@@ -752,17 +764,15 @@ export default function Receipts() {
 
                               {canVerify && receipt.status === 'PENDING' ? (
                                 <>
-                                  <button
+                                  <button className={rowStyles.action}
                                     type="button"
-                                    role="menuitem"
                                     onClick={() => void verify(receipt)}
                                   >
                                     {t('rcpt.verify')}
                                   </button>
                                   <button
                                     type="button"
-                                    role="menuitem"
-                                    className={styles.menuDanger}
+                                    className={rowStyles.danger}
                                     onClick={() => {
                                       setRejecting(receipt)
                                       setOpenMenu(null)
@@ -772,9 +782,52 @@ export default function Receipts() {
                                   </button>
                                 </>
                               ) : null}
-                            </div>
-                          ) : null}
-                        </div>
+
+                              {/* The uploader changes a receipt only while the Owner
+                                  has allowed it (24 hours); otherwise they ask. */}
+                              {user?.role === 'OWNER' ||
+                              (receipt.uploadedBy.id === user?.id &&
+                                receipt.editAllowedUntil != null &&
+                                new Date(receipt.editAllowedUntil) > new Date()) ? (
+                                <button className={rowStyles.action}
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMenu(null)
+                                    setEditingReceipt(receipt)
+                                  }}
+                                >
+                                  {t('load.edit')}
+                                </button>
+                              ) : receipt.uploadedBy.id === user?.id ? (
+                                <button className={rowStyles.action}
+                                  type="button"
+                                  disabled={Boolean(receipt.editRequestedAt)}
+                                  onClick={async () => {
+                                    setOpenMenu(null)
+                                    try {
+                                      await api(`/api/receipts/${receipt.id}/request-edit`, { method: 'POST', body: {} })
+                                      push('success', t('sales.requestSent'))
+                                      setReloadKey((n) => n + 1)
+                                    } catch (caught) {
+                                      push('error', caught instanceof Error ? caught.message : 'Could not send it.')
+                                    }
+                                  }}
+                                >
+                                  {t(receipt.editRequestedAt ? 'sales.editRequested' : 'sales.requestEdit')}
+                                </button>
+                              ) : null}
+
+                              {canDelete(receipt) ? (
+                                <button
+                                  type="button"
+                                  className={rowStyles.danger}
+                                  onClick={() => void remove(receipt)}
+                                >
+                                  {t('prod.delete')}
+                                </button>
+                              ) : null}
+                            
+</div>
                       </td>
                     </tr>
                   ))}
@@ -852,6 +905,17 @@ export default function Receipts() {
           onClose={() => setUploading(false)}
           onDone={(message) => {
             setUploading(false)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
+      {editingReceipt ? (
+        <UploadReceiptDialog
+          editing={editingReceipt}
+          onClose={() => setEditingReceipt(null)}
+          onDone={(message) => {
+            setEditingReceipt(null)
             push('success', message)
             setReloadKey((n) => n + 1)
           }}

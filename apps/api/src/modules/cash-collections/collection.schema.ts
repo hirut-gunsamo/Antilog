@@ -12,4 +12,9 @@ export const listCollectionsQuerySchema = z.object({
   branchId: z.string().min(1).optional(),
 });
 
+export const declareYadereSchema = z.object({
+  amount: z.coerce.number().min(0).max(1_000_000_000),
+});
+
 export type CollectCashInput = z.infer<typeof collectCashSchema>;
+export type DeclareYadereInput = z.infer<typeof declareYadereSchema>;

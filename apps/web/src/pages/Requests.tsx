@@ -1,12 +1,17 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
+import rowStyles from '../components/RowMenu.module.css'
+import { BUSINESS_TZ, businessDay } from '../lib/tz'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../auth/context'
+import { BulkDeleteButton, deleteSelected } from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { DownloadButton } from '../components/DownloadButton'
 import { icons } from '../components/icons'
+import { YadereDialog } from '../components/cash/YadereDialog'
 import { ApproveRequestDialog } from '../components/requests/ApproveRequestDialog'
-import { CategoryDecisions } from '../components/requests/CategoryDecisions'
+import { DispatchDialog } from '../components/requests/DispatchDialog'
+import { RejectDialog } from '../components/approvals/RejectDialog'
 import { NewRequestDialog } from '../components/requests/NewRequestDialog'
 import { RequestDetails } from '../components/requests/RequestDetails'
 import { Toasts } from '../components/Toasts'
@@ -20,6 +25,9 @@ import {
   requestRef,
   requestRoute,
   requestUnitCount,
+  requestStage,
+  requestSummary,
+  askedOfBranch,
 } from '../lib/requests'
 import { useT, type TranslationKey } from '../lib/i18n'
 import { usePageSize } from '../lib/prefs'
@@ -37,6 +45,7 @@ const TABS = [
   { value: 'PENDING', labelKey: 'req.tabPending' },
   { value: 'APPROVED', labelKey: 'req.approved' },
   { value: 'REJECTED', labelKey: 'req.rejected' },
+  { value: 'HANDBACK', labelKey: 'hold.handBack' },
 ] as const satisfies readonly { value: string; labelKey: TranslationKey }[]
 
 type TabValue = (typeof TABS)[number]['value']
@@ -81,7 +90,7 @@ function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 /**
@@ -96,6 +105,7 @@ export default function Requests({
   scope?: 'ALL' | 'SALES' | 'MINE' | 'SUPERVISOR'
 }) {
   const { user } = useAuth()
+  const location = useLocation()
 
   const [requests, setRequests] = useState<StockRequest[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -112,23 +122,32 @@ export default function Requests({
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [detailsOf, setDetailsOf] = useState<StockRequest | null>(null)
   const [approving, setApproving] = useState<StockRequest | null>(null)
+  const [settingYadere, setSettingYadere] = useState(false)
+  // A supervisor's branch, its decided requests going out in one car.
+  const [dispatching, setDispatching] = useState<StockRequest | null>(null)
+  // A supervisor's restock waiting on this viewer (the Owner): opening it
+  // opens Approve & send, where it is approved, given a driver and sent.
+  const isDispatchable = (request: StockRequest) =>
+    user?.role === 'OWNER' && request.requestedBy.role !== 'SALES' && request.status === 'PENDING' && request.requestedTo?.id === user?.id
+
+  // A salesperson's request being rejected, with its reason.
+  const [rejecting, setRejecting] = useState<StockRequest | null>(null)
   const [creating, setCreating] = useState<StockRequestKind | null>(null)
+  const [editingRequest, setEditingRequest] = useState<StockRequest | null>(null)
   const [pending, setPending] = useState<string | null>(null)
 
   const menuRef = useRef<HTMLDivElement | null>(null)
   const { toasts, push, dismiss } = useToasts()
-
-  // A request is decided one category at a time by whoever it was sent to.
-  // The Owner goes straight on to sending a restock once its last category
-  // is decided.
-  function onDecided(updated: StockRequest, message: string) {
-    push('success', message)
-    setReloadKey((n) => n + 1)
-    setDetailsOf((current) => (current?.id === updated.id ? updated : current))
-    if (readyToSend(updated, user?.id)) setApproving(updated)
-  }
   const PAGE_SIZE = usePageSize()
   const t = useT()
+  const linkedTab = useMemo(() => {
+    const tab = new URLSearchParams(location.search).get('tab')
+    return tab === 'HANDBACK' ? tab : null
+  }, [location.search])
+
+  useEffect(() => {
+    if (linkedTab === 'HANDBACK') setTab('HANDBACK')
+  }, [linkedTab])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -229,9 +248,10 @@ export default function Requests({
     ) => rows.filter((r) => pick(r) && when(r.createdAt)).length
 
     const all = (r: StockRequest) => Boolean(r)
-    const isPending = (r: StockRequest) => r.status === 'PENDING'
+    // Approved but not yet sent counts as approved, as the list shows it.
+    const isPending = (r: StockRequest) => r.status === 'PENDING' && requestStage(r) !== 'WAITING_TO_SEND'
     const isApproved = (r: StockRequest) =>
-      r.status === 'APPROVED' || r.status === 'FULFILLED'
+      r.status === 'APPROVED' || r.status === 'FULFILLED' || requestStage(r) === 'WAITING_TO_SEND'
     const isRejected = (r: StockRequest) => r.status === 'REJECTED'
 
     return {
@@ -257,8 +277,26 @@ export default function Requests({
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
+    const today = new Date()
+    const splitHandbacks = scope === 'SALES' && user?.role === 'SUPERVISOR'
+    const isSameDay = (iso: string) => {
+      const when = new Date(iso)
+      return (
+        when.getFullYear() === today.getFullYear() &&
+        when.getMonth() === today.getMonth() &&
+        when.getDate() === today.getDate()
+      )
+    }
 
     return rows.filter((request) => {
+      if (splitHandbacks && tab === 'HANDBACK') {
+        const happenedAt = request.reviewedAt ?? request.createdAt
+        if (request.kind !== 'RETURN' || !isSameDay(happenedAt)) return false
+      } else if (splitHandbacks) {
+        // Daily handbacks live in their own tab, not under "All requests".
+        if (request.kind === 'RETURN') return false
+      }
+
       if (tab === 'MINE' && request.requestedBy.id !== user?.id) return false
       if (tab === 'PENDING' && request.status !== 'PENDING') return false
       if (
@@ -269,7 +307,6 @@ export default function Requests({
         return false
       }
       if (tab === 'REJECTED' && request.status !== 'REJECTED') return false
-
       if (status !== 'ALL' && request.status !== status) return false
       if (branch !== 'ALL' && request.requestedBy.branch?.id !== branch) {
         return false
@@ -300,7 +337,7 @@ export default function Requests({
 
       return true
     })
-  }, [rows, tab, status, branch, type, search, user?.id])
+  }, [rows, tab, status, branch, type, search, scope, user?.id, user?.role])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -370,7 +407,41 @@ export default function Requests({
     }
   }
 
+  // Goods the supervisor handed this salesperson, not yet confirmed: any
+  // approved line not received, even while the rest is still being decided.
+  const toReceive = (request: StockRequest) =>
+    request.kind === 'ISSUE' &&
+    (request.status === 'APPROVED' || request.status === 'PENDING') &&
+    request.requestedBy.role === 'SALES' &&
+    request.items.some((item) => (item.approvedQuantity ?? 0) > 0 && !item.receivedAt)
+
+  async function receive(request: StockRequest) {
+    setPending(request.id)
+    try {
+      await api(`/api/requests/${request.id}/receive`, { method: 'PATCH', body: {} })
+      push('success', t('req.receivedToast', { ref: requestRef(request) }))
+      setReloadKey((n) => n + 1)
+    } catch (caught) {
+      push('error', caught instanceof Error ? caught.message : t('sales.actionFailed'))
+      // It may have been received elsewhere (the sale form's Receive now):
+      // show the list as it stands.
+      setReloadKey((n) => n + 1)
+    } finally {
+      setPending(null)
+    }
+  }
+
   const exportName = `stock-requests-${isoDay(new Date())}.csv`
+  // The Owner deletes any request; anyone else only their own pending ones,
+  // which the API enforces row by row.
+  async function removeSelected() {
+    const ids = [...selected]
+    if (await deleteSelected(ids, (id) => `/api/requests/${id}`, t, push)) {
+      setSelected(new Set())
+      setReloadKey((n) => n + 1)
+    }
+  }
+
   const exportRows = selected.size > 0 ? selected.size : filtered.length
 
   function exportCsv() {
@@ -428,9 +499,9 @@ export default function Requests({
 
 
   // A supervisor's requests are split in two; the plain link opens the
-  // salespeople's list.
+  // salespeople's list. The Owner has only the supervisors' list.
   if (scope === 'ALL' && (isSupervisor || isOwner)) {
-    return <Navigate to="/requests/sales" replace />
+    return <Navigate to={isOwner ? '/requests/supervisors' : '/requests/sales'} replace />
   }
 
   if (error) {
@@ -540,6 +611,13 @@ export default function Requests({
                 onClick={() => setCreating('RETURN')}
               >
                 {t('hold.handBack')}
+              </button>
+              <button
+                className={styles.ghost}
+                type="button"
+                onClick={() => setSettingYadere(true)}
+              >
+                {t('rcpt.yadere')}
               </button>
             </>
           ) : null}
@@ -722,11 +800,16 @@ export default function Requests({
                     <th scope="col">{t('req.requestId')}</th>
                     <th scope="col">{t('req.date')}</th>
                     <th scope="col">{t('req.requestedBy')}</th>
-                    <th scope="col">{t('req.route')}</th>
+                    {/* A salesperson only ever asks their own supervisor. */}
+                    {isSales ? null : <th scope="col">{t('req.route')}</th>}
                     <th scope="col">{t('req.items')}</th>
+                    <th scope="col">{t('req.quantity')}</th>
                     <th scope="col">{t('common.status')}</th>
                     <th scope="col" className={styles.actionsCol}>
-                      {t('common.actions')}
+                      <BulkDeleteButton
+                        count={selected.size}
+                        onClick={() => void removeSelected()}
+                      />
                     </th>
                   </tr>
                 </thead>
@@ -737,6 +820,7 @@ export default function Requests({
                     const time = Number.isNaN(when.getTime())
                       ? ''
                       : when.toLocaleTimeString('en-GB', {
+                          timeZone: BUSINESS_TZ,
                           hour: '2-digit',
                           minute: '2-digit',
                         })
@@ -746,8 +830,12 @@ export default function Requests({
                         key={request.id}
                         data-busy={pending === request.id}
                         className={styles.clickableRow}
-                        onClick={() => setDetailsOf(request)}
-                        data-meta={`${requestRoute(request, t)} · ${shortDate(request.createdAt)} ${time}`}
+                        onClick={() => (isDispatchable(request) ? setDispatching(request) : setDetailsOf(request))}
+                        data-meta={
+                          isSales
+                            ? `${shortDate(request.createdAt)} ${time}`
+                            : `${requestRoute(request, t)} · ${shortDate(request.createdAt)} ${time}`
+                        }
                       >
                         <td
                           className={styles.tick}
@@ -786,59 +874,129 @@ export default function Requests({
                           </span>
                         </td>
 
-                        <td data-label={t('req.route')} data-col="route">{requestRoute(request, t)}</td>
+                        {isSales ? null : (
+                          <td data-label={t('req.route')} data-col="route">{requestRoute(request, t)}</td>
+                        )}
 
-                        {/* Each category with its own Approve and Reject, or
-                            how it was decided. */}
                         <td data-label={t('req.items')} data-col="items">
-                          <CategoryDecisions
-                            request={request}
-                            onDecided={onDecided}
-                            onError={(message) => push('error', message)}
-                          />
+                          {/* In a few words: SIM cards, airtime, phones. Each
+                              item is listed in the details. */}
+                          <ul className={styles.itemList}>
+                            {requestSummary(request).lines.map((line) => (
+                              <li key={line.key}>
+                                <span>{t(line.labelKey)}</span>
+                                <span className={`${styles.qtyInline} tabular`}>
+                                  × {count(line.quantity)}
+                                  {line.key === 'AIRTIME_VOUCHER' ? ' carta' : ''}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          {/* On a phone the Received button sits under the
+                              items, full width, rather than squeezed into the
+                              card's corner. */}
+                          {toReceive(request) && request.requestedBy.id === user?.id ? (
+                            <button
+                              type="button"
+                              className={`${styles.primary} ${styles.receivePhone}`}
+                              disabled={pending === request.id}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void receive(request)
+                              }}
+                            >
+                              {t('req.receive')}
+                            </button>
+                          ) : null}
+                        </td>
+
+                        <td data-label={t('req.quantity')} data-col="qty">
+                          <ul className={styles.itemList}>
+                            {requestSummary(request).lines.map((line) => (
+                              <li key={line.key}>
+                                <span className="tabular">{count(line.quantity)}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </td>
 
                         <td data-label={t('common.status')}>
                           <span
                             className={styles.status}
-                            data-state={request.status}
+                            data-state={requestStage(request) === 'WAITING_TO_SEND' ? 'APPROVED' : request.status}
                           >
-                            {t(REQUEST_STATUS_KEY[request.status])}
+                            {t(REQUEST_STATUS_KEY[requestStage(request) === 'WAITING_TO_SEND' ? 'APPROVED' : request.status])}
                           </span>
+                          {requestStage(request) === 'WAITING_TO_SEND' && request.requestedBy.role !== 'SALES' ? (
+                            <span className={styles.sub}>{t('req.waitingToSend')}</span>
+                          ) : null}
+                          {toReceive(request) ? (
+                            <span className={styles.sub}>{t('req.notReceivedYet')}</span>
+                          ) : request.receivedAt && request.requestedBy.role === 'SALES' ? (
+                            <span className={styles.sub}>
+                              {t('req.receivedBy', {
+                                name: request.receivedBy?.name ?? request.requestedBy.name,
+                                when: shortDate(request.receivedAt),
+                              })}
+                            </span>
+                          ) : null}
                         </td>
 
                         <td
                           className={styles.actionsCol}
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <div className={styles.menuWrap}>
+                          {isOwner && request.requestedBy.role !== 'SALES' &&
+                          request.status === 'PENDING' &&
+                          request.requestedTo?.id === user?.id ? (
                             <button
-                              className={styles.iconButton}
                               type="button"
-                              aria-label={t('a11y.actionsFor', { name: requestRef(request) })}
-                              aria-haspopup="menu"
-                              aria-expanded={openMenu === request.id}
-                              disabled={pending === request.id}
-                              onClick={() =>
-                                setOpenMenu(
-                                  openMenu === request.id ? null : request.id,
-                                )
-                              }
+                              className={styles.primary}
+                              style={{ marginRight: 6 }}
+                              onClick={() => setDispatching(request)}
                             >
-                              <Icon name="more" size={16} />
+                              {t(requestStage(request) === 'WAITING_TO_SEND' ? 'appr.send' : 'dispatch.open')}
                             </button>
-
-                            {openMenu === request.id ? (
-                              <div
-                                className={styles.menu}
-                                role="menu"
-                                ref={menuRef}
+                          ) : null}
+                          {askedOfBranch(request, user) ? (
+                            <>
+                              <button
+                                type="button"
+                                className={styles.primary}
+                                style={{ marginRight: 6 }}
+                                onClick={() => setApproving(request)}
                               >
+                                {t('dlg.approveAndTransfer')}
+                              </button>
+                              {request.items.every((item) => item.approvedQuantity === null) ? (
                                 <button
                                   type="button"
-                                  role="menuitem"
+                                  className={styles.ghost}
+                                  style={{ marginRight: 6 }}
+                                  onClick={() => setRejecting(request)}
+                                >
+                                  {t('appr.reject')}
+                                </button>
+                              ) : null}
+                            </>
+                          ) : null}
+                          {toReceive(request) && request.requestedBy.id === user?.id ? (
+                            <button
+                              type="button"
+                              className={`${styles.primary} ${styles.receiveDesk}`}
+                              style={{ marginRight: 6 }}
+                              disabled={pending === request.id}
+                              onClick={() => void receive(request)}
+                            >
+                              {t('req.receive')}
+                            </button>
+                          ) : null}
+                          <div className={rowStyles.actions}>
+                                <button className={rowStyles.action}
+                                  type="button"
                                   onClick={() => {
-                                    setDetailsOf(request)
+                                    if (isDispatchable(request)) setDispatching(request)
+                                    else setDetailsOf(request)
                                     setOpenMenu(null)
                                   }}
                                 >
@@ -848,10 +1006,54 @@ export default function Requests({
                                 {/* Approve and Reject are per category, in
                                     the Items column; this sends what was
                                     approved. */}
-                                {readyToSend(request, user?.id) ? (
-                                  <button
+                                {isOwner && request.requestedBy.role !== 'SALES' &&
+                                request.status === 'PENDING' &&
+                                request.requestedTo?.id === user?.id ? (
+                                  <button className={rowStyles.action}
                                     type="button"
-                                    role="menuitem"
+                                    onClick={() => {
+                                      setDispatching(request)
+                                      setOpenMenu(null)
+                                    }}
+                                  >
+                                    {t('dispatch.open')}
+                                  </button>
+                                ) : null}
+
+                                {/* A salesperson's request: approved whole, from one
+                                    page, or rejected. */}
+                                {request.requestedBy.role === 'SALES' &&
+                                request.status === 'PENDING' &&
+                                request.requestedTo?.id === user?.id &&
+                                request.items.some((item) => item.approvedQuantity === null) ? (
+                                  <>
+                                    <button className={rowStyles.action}
+                                      type="button"
+                                      onClick={() => {
+                                        setApproving(request)
+                                        setOpenMenu(null)
+                                      }}
+                                    >
+                                      {t('appr.approve')}
+                                    </button>
+                                    {request.items.every((item) => item.approvedQuantity === null) ? (
+                                      <button
+                                        type="button"
+                                        className={rowStyles.danger}
+                                        onClick={() => {
+                                          setRejecting(request)
+                                          setOpenMenu(null)
+                                        }}
+                                      >
+                                        {t('appr.reject')}
+                                      </button>
+                                    ) : null}
+                                  </>
+                                ) : null}
+
+                                {request.requestedBy.role === 'SALES' && readyToSend(request, user?.id) ? (
+                                  <button className={rowStyles.action}
+                                    type="button"
                                     onClick={() => {
                                       setApproving(request)
                                       setOpenMenu(null)
@@ -861,21 +1063,34 @@ export default function Requests({
                                   </button>
                                 ) : null}
 
+                                {/* The requester corrects it until anything is decided. */}
+                                {request.status === 'PENDING' &&
+                                request.requestedBy.id === user?.id &&
+                                request.items.every((item) => item.approvedQuantity === null) ? (
+                                  <button className={rowStyles.action}
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenu(null)
+                                      setEditingRequest(request)
+                                    }}
+                                  >
+                                    {t('load.edit')}
+                                  </button>
+                                ) : null}
+
                                 {request.status === 'PENDING' &&
                                 (isOwner ||
                                   request.requestedBy.id === user?.id) ? (
                                   <button
                                     type="button"
-                                    role="menuitem"
-                                    className={styles.menuDanger}
+                                    className={rowStyles.danger}
                                     onClick={() => void act(request, 'cancel')}
                                   >
                                     {t('req.cancelAction')}
                                   </button>
                                 ) : null}
-                              </div>
-                            ) : null}
-                          </div>
+                              
+</div>
                         </td>
                       </tr>
                     )
@@ -946,9 +1161,50 @@ export default function Requests({
             push('success', t('tr.receivedToast'))
             setReloadKey((n) => n + 1)
           }}
-          {...(detailsOf.status === 'PENDING' && detailsOf.requestedTo?.id === user?.id
-            ? { onDecided, onError: (message: string) => push('error', message) }
+          {...(isOwner && detailsOf.requestedBy.role !== 'SALES' &&
+          detailsOf.status === 'PENDING' &&
+          detailsOf.requestedTo?.id === user?.id
+            ? {
+                onDispatch: () => {
+                  setDispatching(detailsOf)
+                  setDetailsOf(null)
+                },
+              }
             : {})}
+        />
+      ) : null}
+
+      {rejecting ? (
+        <RejectDialog
+          title={t('appr.rejectTitleRequest')}
+          reference={requestRef(rejecting)}
+          what={t('appr.rejectWhatOther')}
+          onClose={() => setRejecting(null)}
+          onConfirm={async (reason) => {
+            await act(rejecting, 'reject', { rejectionReason: reason })
+            setRejecting(null)
+          }}
+        />
+      ) : null}
+
+      {dispatching ? (
+        <DispatchDialog
+          request={dispatching}
+          waiting={(requests ?? []).filter(
+            (request) =>
+              isOwner && request.requestedBy.role !== 'SALES' &&
+              request.status === 'PENDING' &&
+              request.requestedTo?.id === user?.id,
+          )}
+          onClose={() => {
+            setDispatching(null)
+            setReloadKey((n) => n + 1)
+          }}
+          onDone={(message) => {
+            setDispatching(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
         />
       ) : null}
 
@@ -964,12 +1220,34 @@ export default function Requests({
         />
       ) : null}
 
+      {editingRequest ? (
+        <NewRequestDialog
+          editing={editingRequest}
+          onClose={() => setEditingRequest(null)}
+          onDone={(message) => {
+            setEditingRequest(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
+
       {creating ? (
         <NewRequestDialog
           kind={creating}
           onClose={() => setCreating(null)}
           onDone={(message) => {
             setCreating(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
+      {settingYadere ? (
+        <YadereDialog
+          onClose={() => setSettingYadere(false)}
+          onDone={(message) => {
+            setSettingYadere(false)
             push('success', message)
             setReloadKey((n) => n + 1)
           }}

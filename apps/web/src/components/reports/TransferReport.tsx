@@ -8,7 +8,7 @@ import styles from '../../pages/Reports.module.css'
  * Completed transfers: which branch sent what to which, and when it arrived.
  * A summary by route first, then every transfer.
  */
-export function TransferReport({ rows }: { rows: TransferRow[] }) {
+export function TransferReport({ rows, detail }: { rows: TransferRow[]; detail: boolean }) {
   const t = useT()
 
   const units = (row: TransferRow) => row.items.reduce((sum, item) => sum + item.quantity, 0)
@@ -63,7 +63,7 @@ export function TransferReport({ rows }: { rows: TransferRow[] }) {
         )}
       </Card>
 
-      {rows.length > 0 ? (
+      {detail && rows.length > 0 ? (
         <Card title={t('rep.transfersDone')}>
           <div className={styles.scroll}>
             <table className={styles.table}>

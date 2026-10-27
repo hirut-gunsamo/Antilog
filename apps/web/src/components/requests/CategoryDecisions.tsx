@@ -37,110 +37,221 @@ function groupByCategory(items: RequestItem[], t: ReturnType<typeof useT>): Item
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** A tick box that can also show "some of these". */
+function Tick({
+  checked,
+  partly = false,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  partly?: boolean
+  onChange: (checked: boolean) => void
+  label: string
+}) {
+  return (
+    <input
+      type="checkbox"
+      className={styles.tick}
+      checked={checked}
+      aria-label={label}
+      ref={(element) => {
+        if (element) element.indeterminate = partly && !checked
+      }}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+  )
+}
+
 /**
- * A request's items by category (SIM cards, phones, airtime). The person it
- * was sent to approves or rejects each category, all of its items at the
- * quantities asked for; everyone else sees how each category was decided.
+ * A request's items, listed one by one under their category (SIM cards,
+ * phones, airtime). The person it was sent to approves or rejects each item,
+ * or ticks several (or all) and decides them together; everyone else sees
+ * how each item was decided.
  */
 export function CategoryDecisions({
   request,
   onDecided,
   onError,
+  readOnly = false,
 }: {
   request: StockRequest
   onDecided: (updated: StockRequest, message: string) => void
   onError: (message: string) => void
+  /** Show how each item stands without the buttons, as in a table cell. */
+  readOnly?: boolean
 }) {
   const t = useT()
   const { user } = useAuth()
-  const [pending, setPending] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set())
 
-  const canDecide = request.status === 'PENDING' && request.requestedTo?.id === user?.id
+  const canDecide = !readOnly && request.status === 'PENDING' && request.requestedTo?.id === user?.id
   const groups = groupByCategory(request.items, t)
+  const open = request.items.filter((item) => item.approvedQuantity === null)
+  const openIds = open.map((item) => item.id)
+  const chosen = open.filter((item) => ticked.has(item.id))
 
-  async function decide(group: ItemGroup, approve: boolean) {
-    setPending(group.key)
+  function tick(ids: string[], on: boolean) {
+    setTicked((current) => {
+      const next = new Set(current)
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)))
+      return next
+    })
+  }
+
+  async function decide(items: RequestItem[], approve: boolean) {
+    if (items.length === 0) return
+    setPending(true)
 
     try {
       const payload = await api<{ request: StockRequest }>(
         `/api/requests/${request.id}/items/decide`,
         {
           method: 'PATCH',
-          body: { itemIds: group.items.map((item) => item.id), approve },
+          body: { itemIds: items.map((item) => item.id), approve },
         },
       )
+      setTicked(new Set())
       onDecided(
         payload.request,
-        t(approve ? 'appr.itemApproved' : 'appr.itemRejected', {
-          name: group.name,
-          n: count(group.units),
-        }),
+        items.length === 1
+          ? t(approve ? 'appr.itemApproved' : 'appr.itemRejected', {
+              name: items[0].product.name,
+              n: count(items[0].quantity),
+            })
+          : t(approve ? 'appr.itemsApproved' : 'appr.itemsRejected', { n: count(items.length) }),
       )
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : t('appr.approveFailed'))
     } finally {
-      setPending(null)
+      setPending(false)
     }
   }
 
+  const stateOf = (item: RequestItem) =>
+    item.approvedQuantity === null
+      ? request.status === 'PENDING'
+        ? 'PENDING'
+        : request.status === 'REJECTED'
+          ? 'REJECTED'
+          : 'OTHER'
+      : item.approvedQuantity > 0
+        ? 'APPROVED'
+        : 'REJECTED'
+
+  const showTicks = canDecide && open.length > 0
+
   return (
-    <ul className={styles.groups} onClick={(event) => event.stopPropagation()}>
-      {groups.map((group) => {
-        const undecided = group.items.some((item) => item.approvedQuantity === null)
-        const state = undecided
-          ? request.status === 'PENDING'
-            ? 'PENDING'
-            : request.status === 'REJECTED'
-              ? 'REJECTED'
-              : 'OTHER'
-          : group.items.some((item) => (item.approvedQuantity ?? 0) > 0)
-            ? 'APPROVED'
-            : 'REJECTED'
+    <div className={styles.wrap} onClick={(event) => event.stopPropagation()}>
+      {showTicks && open.length > 1 ? (
+        <label className={styles.all}>
+          <Tick
+            checked={chosen.length === open.length}
+            partly={chosen.length > 0}
+            onChange={(on) => tick(openIds, on)}
+            label={t('appr.selectAll')}
+          />
+          <span>{`${t('appr.selectAll')} (${count(open.length)})`}</span>
+        </label>
+      ) : null}
 
-        return (
-          <li key={group.key}>
-            <span className={styles.name}>
-              <strong>{group.name}</strong>
-              {group.items.map((item) => (
-                <span key={item.id} className={styles.item}>
-                  {item.product.name} × <span className="tabular">{count(item.quantity)}</span>
-                </span>
-              ))}
-            </span>
+      <ul className={styles.groups}>
+        {groups.map((group) => {
+          const groupOpen = group.items.filter((item) => item.approvedQuantity === null)
+          const groupTicked = groupOpen.filter((item) => ticked.has(item.id)).length
 
-            {canDecide && undecided ? (
-              <span className={styles.actions}>
-                <button
-                  type="button"
-                  className={styles.approve}
-                  disabled={pending !== null}
-                  onClick={() => void decide(group, true)}
-                >
-                  {t('appr.approve')}
-                </button>
-                <button
-                  type="button"
-                  className={styles.reject}
-                  disabled={pending !== null}
-                  onClick={() => void decide(group, false)}
-                >
-                  {t('appr.reject')}
-                </button>
+          return (
+            <li key={group.key} className={styles.group}>
+              <span className={styles.groupHead}>
+                {showTicks && groupOpen.length > 0 ? (
+                  <Tick
+                    checked={groupTicked === groupOpen.length}
+                    partly={groupTicked > 0}
+                    onChange={(on) => tick(groupOpen.map((item) => item.id), on)}
+                    label={group.name}
+                  />
+                ) : null}
+                <strong>{group.name}</strong>
               </span>
-            ) : (
-              <span className={styles.state} data-state={state}>
-                {state === 'APPROVED'
-                  ? t('appr.statusApproved')
-                  : state === 'REJECTED'
-                    ? t('appr.statusRejected')
-                    : state === 'PENDING'
-                      ? t('appr.statusPending')
-                      : '—'}
-              </span>
-            )}
-          </li>
-        )
-      })}
-    </ul>
+
+              {group.items.map((item) => {
+                const state = stateOf(item)
+                const undecided = item.approvedQuantity === null
+
+                return (
+                  <div key={item.id} className={styles.line}>
+                    <label className={styles.name}>
+                      {showTicks && undecided ? (
+                        <Tick
+                          checked={ticked.has(item.id)}
+                          onChange={(on) => tick([item.id], on)}
+                          label={item.product.name}
+                        />
+                      ) : null}
+                      <span>
+                        {item.product.name} × <span className="tabular">{count(item.quantity)}</span>
+                      </span>
+                    </label>
+
+                    {canDecide && undecided ? (
+                      <span className={styles.actions}>
+                        <button
+                          type="button"
+                          className={styles.approve}
+                          disabled={pending}
+                          onClick={() => void decide([item], true)}
+                        >
+                          {t('appr.approve')}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.reject}
+                          disabled={pending}
+                          onClick={() => void decide([item], false)}
+                        >
+                          {t('appr.reject')}
+                        </button>
+                      </span>
+                    ) : (
+                      <span className={styles.state} data-state={state}>
+                        {state === 'APPROVED'
+                          ? t('appr.statusApproved')
+                          : state === 'REJECTED'
+                            ? t('appr.statusRejected')
+                            : state === 'PENDING'
+                              ? t('appr.statusPending')
+                              : '—'}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </li>
+          )
+        })}
+      </ul>
+
+      {showTicks && chosen.length > 0 ? (
+        <div className={styles.bulk}>
+          <button
+            type="button"
+            className={styles.approve}
+            disabled={pending}
+            onClick={() => void decide(chosen, true)}
+          >
+            {t('appr.approveSelected', { n: count(chosen.length) })}
+          </button>
+          <button
+            type="button"
+            className={styles.reject}
+            disabled={pending}
+            onClick={() => void decide(chosen, false)}
+          >
+            {t('appr.rejectSelected', { n: count(chosen.length) })}
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }

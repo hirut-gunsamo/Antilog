@@ -254,6 +254,13 @@
   margin-bottom: 14px;
 }
 
+/* Edit and Delete: on the Reset row, in the right corner. */
+.bulkActions {
+  grid-column: 4 / -1;
+  justify-self: end;
+  align-self: center;
+}
+
 .search {
   position: relative;
   display: flex;
@@ -513,6 +520,11 @@
   white-space: nowrap;
 }
 
+.menu button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .menu button:hover {
   background: var(--surface-2);
 }
@@ -613,6 +625,10 @@
 @media (max-width: 1100px) {
   .filters {
     grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .bulkActions {
+    grid-column: 1 / -1;
   }
 
   .search {
@@ -760,17 +776,15 @@
 }
 
 @media (max-width: 1140px) and (min-width: 721px) {
-  .table th:nth-child(9),
-  .table td:nth-child(9) {
+  .table th:nth-child(8),
+  .table td:nth-child(8) {
     display: none;
   }
 }
 
 @media (max-width: 1000px) and (min-width: 721px) {
   .table th:nth-child(5),
-  .table td:nth-child(5),
-  .table th:nth-child(6),
-  .table td:nth-child(6) {
+  .table td:nth-child(5) {
     display: none;
   }
 }
@@ -816,13 +830,16 @@
     display: none;
   }
 
+  /* Sale and total, then who sold it and its state, then when and how it
+     was paid. Everything else is in the details. */
   .table tbody tr {
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto 30px;
     grid-template-areas:
-      'ref   total  act'
-      'meta  status act';
+      'ref      total    act'
+      'employee status   act'
+      'when     received act';
     align-items: center;
     column-gap: 11px;
     row-gap: 3px;
@@ -844,40 +861,56 @@
     min-width: 0;
   }
 
-  /* Folded into the meta line or the details panel. */
-  .table td[data-label='Date'],
-  .table td[data-label='Employee'],
-  .table td[data-label='Branch'],
-  .table td[data-label='Qty'],
-  .table td[data-label='Cash'],
-  .tick {
+  .table .cellBranch,
+  .table .cellQty,
+  .table .tick {
     display: none;
   }
 
-  .table td[data-label='Sale ID'] {
+  .table .cellRef {
     grid-area: ref;
     font-size: 13.5px;
   }
 
-  .table td[data-label='Items'] {
-    grid-area: meta;
-    font-size: 11.5px;
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .table .cellEmployee {
+    grid-area: employee;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
   }
 
-  .table td[data-label='Total'] {
+  .table .cellWhen {
+    grid-area: when;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  .table .cellTotal {
     grid-area: total;
     text-align: right;
     font-size: 13.5px;
     white-space: nowrap;
   }
 
-  .table td[data-label='Status'] {
+  .table .cellStatus {
     grid-area: status;
     text-align: right;
+  }
+
+  .table .cellReceived {
+    grid-area: received;
+    text-align: right;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  /* The amount is the total again; only how it was paid is new here. */
+  .table .cellReceived {
+    font-size: 0;
+  }
+
+  .table .cellReceived small {
+    font-size: 11.5px;
   }
 
   .actionsCol {
@@ -958,4 +991,60 @@
   font-weight: 600;
   color: var(--text-2);
   white-space: nowrap;
+}
+
+/* Edit and Delete sit side by side on each sale. */
+.rowActions {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rowAction {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rowAction:hover:not(:disabled) {
+  border-color: var(--brand);
+}
+
+.rowAction:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rowActionDanger {
+  color: var(--danger);
+}
+
+.rowActionDanger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+/* "Fix payment" under a sale's received amount. */
+.linkButton {
+  display: block;
+  margin-top: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
 }

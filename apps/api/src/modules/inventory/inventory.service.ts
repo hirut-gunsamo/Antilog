@@ -1,5 +1,6 @@
 import { Prisma } from "database";
 import { prisma } from "../../plugins/prisma.js";
+import { withRowBranchPrice } from "../products/branchPrice.js";
 import type { Viewer } from "../../middleware/auth.js";
 import type {
   AdjustBalanceInput,
@@ -7,6 +8,7 @@ import type {
   StockInInput,
   UpdateProductInput,
 } from "./inventory.schema.js";
+import { addToBranchShare, mainStoreId } from "./branchStock.js";
 
 // Branch identity as it appears alongside stock. Staff details are deliberately
 // absent: a branch's stock says nothing about who works there.
@@ -71,9 +73,13 @@ export async function stockIn(
     throw new Error("PRODUCT_INACTIVE");
   }
 
+  // Stock bought for a branch arrives at the main store, in that branch's share.
+  const locationId = data.locationId ?? (data.forBranchId ? await mainStoreId(prisma) : undefined);
+  if (!locationId) throw new Error("BRANCH_REQUIRED");
+
   const location = await prisma.stockLocation.findUnique({
     where: {
-      id: data.locationId,
+      id: locationId,
     },
   });
 
@@ -86,18 +92,33 @@ export async function stockIn(
     throw new Error("LOCATION_INACTIVE");
   }
 
+  // At a main store everything belongs to some branch's share.
+  if (location.isMainStock) {
+    if (!data.forBranchId) throw new Error("BRANCH_REQUIRED");
+    const branch = await prisma.stockLocation.findUnique({
+      where: { id: data.forBranchId },
+      select: { isActive: true, isMainStock: true },
+    });
+    if (!branch || branch.isMainStock) throw new Error("BRANCH_REQUIRED");
+    if (!branch.isActive) throw new Error("LOCATION_INACTIVE");
+  }
+
   return prisma.$transaction(async (tx) => {
+    if (location.isMainStock && data.forBranchId) {
+      await addToBranchShare(tx, data.forBranchId, data.productId, data.quantity);
+    }
+
     // One balance row per product per branch.
     const balance = await tx.inventoryBalance.upsert({
       where: {
         locationId_productId: {
-          locationId: data.locationId,
+          locationId,
           productId: data.productId,
         },
       },
       create: {
         productId: data.productId,
-        locationId: data.locationId,
+        locationId,
         quantity: data.quantity,
       },
       update: {
@@ -110,7 +131,7 @@ export async function stockIn(
     await tx.stockMovement.create({
       data: {
         productId: data.productId,
-        toLocationId: data.locationId,
+        toLocationId: locationId,
         quantity: data.quantity,
         type: "STOCK_IN",
         createdById: performedById,
@@ -247,7 +268,8 @@ export async function getStockSummary(
     orderBy: [{ location: { name: "asc" } }, { quantity: "desc" }],
   });
 
-  let items = await withShelf(balances);
+  // Each row shows what the product sells for at that row's branch.
+  let items = await withShelf(await withRowBranchPrice(balances));
 
   // A salesperson asking for their own stock gets only what was issued to
   // them: what they received, sold and handed back, and what they still hold.
@@ -394,6 +416,12 @@ export async function adjustBalance(
 
   if (!balance) {
     throw new Error("BALANCE_NOT_FOUND");
+  }
+
+  // The main store's figure is the sum of the branches' shares; it is
+  // corrected one share at a time instead.
+  if (balance.location.isMainStock) {
+    throw new Error("EDIT_BRANCH_SHARE");
   }
 
   if (!balance.location.isActive) {
@@ -665,5 +693,91 @@ export async function getHoldings(
         ),
       },
     };
+  });
+}
+
+/** The Owner's stock, branch by branch: what is held at the main store for each. */
+export async function listBranchStock(query: { branchId?: string }) {
+  const rows = await prisma.branchStock.findMany({
+    where: { ...(query.branchId ? { branchId: query.branchId } : {}), quantity: { gt: 0 } },
+    select: {
+      id: true,
+      quantity: true,
+      updatedAt: true,
+      branch: { select: { id: true, name: true } },
+      product: {
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          category: true,
+          price: true,
+          costPrice: true,
+          productCategory: { select: { id: true, name: true } },
+        },
+      },
+    },
+    orderBy: [{ branch: { name: "asc" } }, { product: { name: "asc" } }],
+  });
+  return rows;
+}
+
+/**
+ * Sets one branch's share to its true figure. The main store's balance moves
+ * by the same difference, recorded as an ADJUSTMENT, so the two stay equal.
+ */
+export async function setBranchStock(
+  data: { branchId: string; productId: string; quantity: number },
+  performedById: string,
+) {
+  const branch = await prisma.stockLocation.findUnique({
+    where: { id: data.branchId },
+    select: { id: true, name: true, isMainStock: true },
+  });
+  if (!branch || branch.isMainStock) throw new Error("BRANCH_REQUIRED");
+  const product = await prisma.product.findUnique({ where: { id: data.productId }, select: { id: true } });
+  if (!product) throw new Error("PRODUCT_NOT_FOUND");
+  const storeId = await mainStoreId(prisma);
+
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.branchStock.findUnique({
+      where: { branchId_productId: { branchId: data.branchId, productId: data.productId } },
+      select: { quantity: true },
+    });
+    const delta = data.quantity - (current?.quantity ?? 0);
+    if (delta === 0) return { quantity: data.quantity };
+
+    await tx.branchStock.upsert({
+      where: { branchId_productId: { branchId: data.branchId, productId: data.productId } },
+      create: { branchId: data.branchId, productId: data.productId, quantity: data.quantity },
+      update: { quantity: data.quantity },
+    });
+
+    if (delta > 0) {
+      await tx.inventoryBalance.upsert({
+        where: { locationId_productId: { locationId: storeId, productId: data.productId } },
+        create: { locationId: storeId, productId: data.productId, quantity: delta },
+        update: { quantity: { increment: delta } },
+      });
+    } else {
+      const { count } = await tx.inventoryBalance.updateMany({
+        where: { locationId: storeId, productId: data.productId, quantity: { gte: -delta } },
+        data: { quantity: { decrement: -delta } },
+      });
+      if (count === 0) throw new Error("NOT_ENOUGH_FOR_BRANCH");
+    }
+
+    await tx.stockMovement.create({
+      data: {
+        productId: data.productId,
+        ...(delta > 0 ? { toLocationId: storeId } : { fromLocationId: storeId }),
+        quantity: Math.abs(delta),
+        type: "ADJUSTMENT",
+        createdById: performedById,
+        notes: `Share for ${branch.name} set to ${data.quantity}`,
+      },
+    });
+
+    return { quantity: data.quantity };
   });
 }

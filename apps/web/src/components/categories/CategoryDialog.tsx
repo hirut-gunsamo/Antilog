@@ -6,9 +6,18 @@ import type { CategoryRow } from '../../lib/types'
 import styles from '../inventory/Panel.module.css'
 
 /**
- * Adds a category (or renames one). Added categories hold goods counted and
- * sold by quantity and price, such as Accessories.
+ * How a new category's goods work, read from its name: SIM cards take an
+ * ICCID, phones an IMEI, airtime is sold by value, anything else by quantity
+ * and price.
  */
+function kindFromName(name: string): CategoryRow['kind'] {
+  if (/sim|ሲም/i.test(name)) return 'SIM_CARD'
+  if (/phone|mobile|ስልክ/i.test(name)) return 'PHONE'
+  if (/airtime|voucher|evd|አየር/i.test(name)) return 'AIRTIME_VOUCHER'
+  return 'OTHER'
+}
+
+/** Adds a category (or renames one). */
 export function CategoryDialog({
   editing,
   onClose,
@@ -46,7 +55,7 @@ export function CategoryDialog({
       } else {
         const payload = await api<{ category: CategoryRow }>('/api/categories', {
           method: 'POST',
-          body: { name: name.trim() },
+          body: { name: name.trim(), kind: kindFromName(name) },
         })
         onDone(payload.category)
       }

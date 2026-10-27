@@ -2,9 +2,11 @@ import { prisma } from "../../plugins/prisma.js";
 import { sendOut, shelfStock } from "../requests/request.service.js";
 import type { Viewer } from "../../middleware/auth.js";
 import type { ListTransfersQuery } from "./transfer.schema.js";
+import { addToBranchShare, isMainStore, sendableStock, takeFromBranchShare } from "../inventory/branchStock.js";
 
 const transferDetail = {
   id: true,
+  directSend: true,
   status: true,
   notes: true,
   shippedAt: true,
@@ -19,7 +21,14 @@ const transferDetail = {
     select: { id: true, name: true, isMainStock: true },
   },
   toLocation: {
-    select: { id: true, name: true, isMainStock: true },
+    select: {
+      id: true,
+      name: true,
+      isMainStock: true,
+      // A branch with a supervisor receives its own goods; the Owner only
+      // receives for a branch without one (the store).
+      _count: { select: { users: { where: { role: "SUPERVISOR" as const, isActive: true } } } },
+    },
   },
 
   deliveredBy: { select: { id: true, name: true, role: true } },
@@ -124,8 +133,9 @@ export async function shipTransfer(
 
   // Re-check availability: stock may have been sold since approval.
   // Goods issued to the branch's salespeople are not the branch's to send.
-  const available = await shelfStock(
+  const available = await sendableStock(
     transfer.fromLocationId,
+    transfer.toLocationId,
     transfer.items.map((i) => i.productId),
   );
 
@@ -145,8 +155,13 @@ export async function shipTransfer(
     throw error;
   }
 
+  const fromMain = await isMainStore(prisma, transfer.fromLocationId);
+
   return prisma.$transaction(async (tx) => {
     for (const item of transfer.items) {
+      // From a main store it comes out of the receiving branch's share.
+      if (fromMain) await takeFromBranchShare(tx, transfer.toLocationId, item.productId, item.quantity);
+
       await tx.inventoryBalance.update({
         where: {
           locationId_productId: {
@@ -209,18 +224,26 @@ export async function receiveTransfer(
     throw new Error("TRANSFER_NOT_IN_TRANSIT");
   }
 
-  // Only the receiving branch confirms receipt.
-  if (
-    viewer.role !== "OWNER" &&
-    transfer.toLocationId !== viewer.branchId
-  ) {
+  // Only the receiving branch confirms receipt: its supervisor counts what
+  // arrived. The Owner receives only for a branch with no supervisor.
+  if (viewer.role === "OWNER") {
+    const supervisors = await prisma.user.count({
+      where: { role: "SUPERVISOR", isActive: true, branchId: transfer.toLocationId },
+    });
+    if (supervisors > 0) throw new Error("NOT_YOUR_TRANSFER");
+  } else if (transfer.toLocationId !== viewer.branchId) {
     throw new Error("NOT_YOUR_TRANSFER");
   }
+
+  // Stock a branch sends back to a main store goes into that branch's share.
+  const toMain = await isMainStore(prisma, transfer.toLocationId);
 
   return prisma.$transaction(async (tx) => {
     // Stock is a count. Unit rows exist only for items already sold, and
     // those never move between branches.
     for (const item of transfer.items) {
+      if (toMain) await addToBranchShare(tx, transfer.fromLocationId, item.productId, item.quantity);
+
       await tx.inventoryBalance.upsert({
         where: {
           locationId_productId: {
@@ -247,12 +270,13 @@ export async function receiveTransfer(
       },
     });
 
-    if (transfer.requestId) {
-      await tx.stockRequest.update({
-        where: { id: transfer.requestId },
-        data: { status: "FULFILLED", fulfilledAt: new Date() },
-      });
-    }
+    // Every request that came in this car is fulfilled.
+    await tx.stockRequest.updateMany({
+      where: {
+        OR: [{ shipmentId: id }, ...(transfer.requestId ? [{ id: transfer.requestId }] : [])],
+      },
+      data: { status: "FULFILLED", fulfilledAt: new Date() },
+    });
 
     return tx.stockTransfer.findUnique({
       where: { id },
@@ -285,10 +309,13 @@ export async function cancelTransfer(
   }
 
   const wasShipped = transfer.status === "IN_TRANSIT";
+  // Called back to a main store: it goes back into the branch's share.
+  const fromMain = wasShipped && (await isMainStore(prisma, transfer.fromLocationId));
 
   return prisma.$transaction(async (tx) => {
     if (wasShipped) {
       for (const item of transfer.items) {
+        if (fromMain) await addToBranchShare(tx, transfer.toLocationId, item.productId, item.quantity);
         await tx.inventoryBalance.update({
           where: {
             locationId_productId: {
@@ -324,12 +351,12 @@ export async function cancelTransfer(
 
     // The originating request goes back to approved-but-unfulfilled so the
     // Owner can re-issue it from a different branch.
-    if (transfer.requestId) {
-      await tx.stockRequest.update({
-        where: { id: transfer.requestId },
-        data: { status: "PENDING", reviewedAt: null },
-      });
-    }
+    await tx.stockRequest.updateMany({
+      where: {
+        OR: [{ shipmentId: id }, ...(transfer.requestId ? [{ id: transfer.requestId }] : [])],
+      },
+      data: { status: "PENDING", reviewedAt: null, shipmentId: null },
+    });
 
     return tx.stockTransfer.findUnique({
       where: { id },
@@ -352,6 +379,7 @@ export async function createTransfer(
     driverPhone: string;
     vehiclePlate: string;
     notes?: string;
+    directSend?: boolean;
   },
   viewer: Viewer,
 ) {
@@ -377,6 +405,7 @@ export async function createTransfer(
       data: {
         fromLocationId: data.fromLocationId,
         toLocationId: data.toLocationId,
+        directSend: data.directSend ?? false,
         status: "IN_TRANSIT",
         deliveredById: viewer.userId,
         shippedAt: new Date(),

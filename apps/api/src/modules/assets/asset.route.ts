@@ -8,6 +8,7 @@ import {
   deleteAssetController,
   getAssetsController,
   updateAssetController,
+  sendAssetController,
 } from "./asset.controller.js";
 
 type AssetParams = { id: string };
@@ -42,5 +43,12 @@ export async function assetRoutes(app: FastifyInstance) {
     "/:id",
     { preHandler: [authorize(UserRole.OWNER)] },
     deleteAssetController,
+  );
+
+  // Equipment sent to a branch, with the stock it goes with.
+  app.post<{ Params: AssetParams }>(
+    "/:id/send",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    sendAssetController,
   );
 }

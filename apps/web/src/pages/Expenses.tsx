@@ -1,4 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
+import { businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
@@ -14,15 +17,23 @@ import base from './Products.module.css'
 import styles from './Ibid.module.css'
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 // Common reasons, offered as the supervisor types; anything else is fine too.
 const REASONS = ['Transport', 'Food', 'Repairs', 'Supplies', 'Rent', 'Electricity', 'Water', 'Internet', 'Cleaning']
 
-/** A supervisor records one expense: amount, reason, the day, a note. */
+/**
+ * One expense: amount, reason, the day, a note. It comes off the cash of the
+ * person who paid it: a salesperson's own, or for a supervisor, theirs or one
+ * of their salespeople's.
+ */
 function AddExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: (amount: number) => void }) {
   const t = useT()
+  const { user } = useAuth()
+  const isSupervisor = user?.role === 'SUPERVISOR'
+  const [staff, setStaff] = useState<{ id: string; name: string }[]>([])
+  const [spentById, setSpentById] = useState('')
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
   const [date, setDate] = useState(isoDay(new Date()))
@@ -38,6 +49,19 @@ function AddExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: (a
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEffect(() => {
+    if (!isSupervisor) return
+    const controller = new AbortController()
+    api<{ users: { id: string; name: string; role: string; isActive: boolean }[] }>('/api/users', {
+      signal: controller.signal,
+    })
+      .then((payload) =>
+        setStaff((payload.users ?? []).filter((person) => person.isActive && person.role === 'SALES')),
+      )
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [isSupervisor])
+
   const value = Number(amount)
   const valid = value > 0 && reason.trim().length >= 2 && date !== ''
 
@@ -49,7 +73,13 @@ function AddExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: (a
     try {
       await api('/api/expenses', {
         method: 'POST',
-        body: { amount: value, reason: reason.trim(), date, ...(note.trim() ? { note: note.trim() } : {}) },
+        body: {
+          amount: value,
+          reason: reason.trim(),
+          date,
+          ...(note.trim() ? { note: note.trim() } : {}),
+          ...(spentById ? { spentById } : {}),
+        },
       })
       onDone(value)
     } catch (caught) {
@@ -80,6 +110,20 @@ function AddExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: (a
             <input type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} autoFocus required />
           </label>
 
+          {isSupervisor ? (
+            <label className={panel.field}>
+              <span>{t('exp.paidFrom')}</span>
+              <select value={spentById} onChange={(event) => setSpentById(event.target.value)}>
+                <option value="">{t('exp.paidFromMe')}</option>
+                {staff.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className={panel.field}>
             <span>
               {t('exp.reason')}<em>{t('common.required')}</em>
@@ -96,7 +140,7 @@ function AddExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: (a
             <span>
               {t('req.date')}<em>{t('common.required')}</em>
             </span>
-            <input type="date" value={date} max={isoDay(new Date())} onChange={(event) => setDate(event.target.value)} required />
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
           </label>
 
           <label className={panel.field}>
@@ -134,8 +178,8 @@ export default function Expenses() {
   const branchList = useBranchList()
 
   const now = new Date()
-  const [from, setFrom] = useState(isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
-  const [to, setTo] = useState(isoDay(now))
+  const [from, setFrom] = useSavedState('expenses:from', isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
+  const [to, setTo] = useSavedState('expenses:to', isoDay(now))
   const [branch, setBranch] = useState('')
   const [data, setData] = useState<ExpenseReport | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -170,8 +214,8 @@ export default function Expenses() {
     if (!data) return
     const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
     const lines = [
-      ['Date', 'Branch', 'Reason', 'Amount', 'Note', 'Recorded by'],
-      ...data.expenses.map((row) => [row.expenseDate.slice(0, 10), row.branch.name, row.reason, Number(row.amount), row.note ?? '', row.recordedBy.name]),
+      ['Date', 'Branch', 'Reason', 'Amount', 'Note', 'Recorded by', 'Paid by'],
+      ...data.expenses.map((row) => [row.expenseDate.slice(0, 10), row.branch.name, row.reason, Number(row.amount), row.note ?? '', row.recordedBy.name, row.spentBy?.name ?? '']),
     ]
     const blob = new Blob([lines.map((line) => line.map(escape).join(',')).join('\n')], { type: 'text/csv' })
     const link = document.createElement('a')
@@ -310,6 +354,7 @@ export default function Expenses() {
                   <th scope="col">{t('exp.reason')}</th>
                   <th scope="col">{t('ibid.amountBirr')}</th>
                   <th scope="col">{t('common.branch')}</th>
+                  <th scope="col">{t('exp.paidBy')}</th>
                   <th scope="col">{t('ibid.by')}</th>
                   <th scope="col" />
                 </tr>
@@ -324,10 +369,11 @@ export default function Expenses() {
                     </td>
                     <td data-label={t('ibid.amountBirr')} className={`${base.strong} tabular`}>{currency(Number(row.amount))}</td>
                     <td data-label={t('common.branch')}>{row.branch.name}</td>
+                    <td data-label={t('exp.paidBy')}>{row.spentBy?.name ?? '—'}</td>
                     <td data-label={t('ibid.by')}>{row.recordedBy.name}</td>
                     <td>
                       {canDelete(row) ? (
-                        <button type="button" className={styles.remove} onClick={() => void remove(row.id)}>
+                        <button type="button" className={rowStyles.danger} onClick={() => void remove(row.id)}>
                           {t('prod.delete')}
                         </button>
                       ) : null}

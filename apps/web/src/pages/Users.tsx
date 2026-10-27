@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
+import { businessDay } from '../lib/tz'
 
 import { useAuth } from '../auth/context'
+import { BulkDeleteButton, deleteSelected } from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { DownloadButton } from '../components/DownloadButton'
 import { icons } from '../components/icons'
@@ -38,7 +41,7 @@ function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 export default function Users() {
@@ -237,6 +240,14 @@ export default function Users() {
       )
     } finally {
       setPending(null)
+    }
+  }
+
+  async function removeSelected() {
+    const ids = [...selected]
+    if (await deleteSelected(ids, (id) => `/api/users/${id}`, t, push)) {
+      setSelected(new Set())
+      setReloadKey((n) => n + 1)
     }
   }
 
@@ -486,7 +497,16 @@ export default function Users() {
                     <th scope="col">{t('common.status')}</th>
                     <th scope="col">{t('users.joined')}</th>
                     <th scope="col" className={styles.actionsCol}>
-                      {t('common.actions')}
+                      {/* Deleting people is the Owner's. */}
+                      {isOwner ? (
+                        <BulkDeleteButton
+                          count={selected.size}
+                          busy={pending !== null}
+                          onClick={() => void removeSelected()}
+                        />
+                      ) : (
+                        t('common.actions')
+                      )}
                     </th>
                   </tr>
                 </thead>
@@ -577,25 +597,7 @@ export default function Users() {
                       <td data-label={t('users.joined')}>{shortDate(person.createdAt)}</td>
 
                       <td className={styles.actionsCol}>
-                        <div className={styles.menuWrap}>
-                          <button
-                            className={styles.iconButton}
-                            type="button"
-                            aria-label={t('a11y.actionsFor', { name: person.name })}
-                            aria-haspopup="menu"
-                            aria-expanded={openMenu === person.id}
-                            disabled={!isOwner || pending === person.id}
-                            onClick={() =>
-                              setOpenMenu(
-                                openMenu === person.id ? null : person.id,
-                              )
-                            }
-                          >
-                            <Icon name="more" size={16} />
-                          </button>
-
-                          {openMenu === person.id ? (
-                            <div className={styles.menu} role="menu" ref={menuRef}>
+                        <div className={rowStyles.actions}>
                               {confirmDelete === person.id ? (
                                 // Second step. Deleting a person is the one
                                 // action here that cannot be undone, so it asks
@@ -628,9 +630,8 @@ export default function Users() {
                                 </div>
                               ) : (
                                 <>
-                                  <button
+                                  <button className={rowStyles.action}
                                     type="button"
-                                    role="menuitem"
                                     onClick={() => {
                                       setEditing(person)
                                       setOpenMenu(null)
@@ -645,8 +646,7 @@ export default function Users() {
                                   person.role !== 'OWNER' ? (
                                     <button
                                       type="button"
-                                      role="menuitem"
-                                      className={styles.menuDanger}
+                                      className={rowStyles.danger}
                                       onClick={() => setConfirmDelete(person.id)}
                                     >
                                       {t('users.deleteUser')}
@@ -656,9 +656,8 @@ export default function Users() {
                                   {/* The Owner is org-wide and has no branch,
                                       so there is nothing to move them to. */}
                                   {person.role !== 'OWNER' ? (
-                                    <button
+                                    <button className={rowStyles.action}
                                       type="button"
-                                      role="menuitem"
                                       onClick={() => {
                                         setMoving(person)
                                         setOpenMenu(null)
@@ -671,9 +670,8 @@ export default function Users() {
                                   ) : null}
 
                                   {person.id !== me?.id ? (
-                                    <button
+                                    <button className={rowStyles.action}
                                       type="button"
-                                      role="menuitem"
                                       onClick={() =>
                                         void setActive(person, !person.isActive)
                                       }
@@ -685,9 +683,8 @@ export default function Users() {
                                   ) : null}
                                 </>
                               )}
-                            </div>
-                          ) : null}
-                        </div>
+                            
+</div>
                       </td>
                     </tr>
                   ))}

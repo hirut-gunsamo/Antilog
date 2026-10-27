@@ -1,3 +1,7 @@
+// The business runs on Ethiopian time: days (a sale's day, a receipt's day,
+// "today") are worked out there whatever the machine is set to.
+process.env.TZ = process.env.TZ || "Africa/Addis_Ababa";
+
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -27,6 +31,7 @@ import { pushRoutes } from "./modules/push/push.route.js";
 import { ibidRoutes } from "./modules/ibid/ibid.route.js";
 import { payrollRoutes } from "./modules/payroll/payroll.route.js";
 import { telebirrRoutes } from "./modules/telebirr/telebirr.route.js";
+import { deductionRoutes } from "./modules/deductions/deduction.route.js";
 import { expenseRoutes } from "./modules/expenses/expense.route.js";
 import { nidOrderRoutes } from "./modules/nid-orders/nidOrder.route.js";
 import { bankRoutes } from "./modules/banks/bank.route.js";
@@ -182,6 +187,10 @@ await app.register(payrollRoutes, {
 
 await app.register(telebirrRoutes, {
   prefix: "/api/telebirr",
+});
+
+await app.register(deductionRoutes, {
+  prefix: "/api/deductions",
 });
 
 await app.register(expenseRoutes, {

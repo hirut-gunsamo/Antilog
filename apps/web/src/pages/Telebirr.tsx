@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+import bulk from '../components/BulkDelete.module.css'
+import { HeaderActions } from '../components/HeaderActions'
+import { businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
@@ -9,19 +13,21 @@ import { useBranchList } from '../lib/branches'
 import { count, currency, shortDate } from '../lib/format'
 import { useT } from '../lib/i18n'
 import { useToasts } from '../lib/toasts'
+import { EditLoadDialog } from '../components/ibid/EditLoadDialog'
 import type { TelebirrSummary } from '../lib/types'
 import base from './Products.module.css'
 import styles from './Ibid.module.css'
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 const KIND_KEY = { CASH_IN: 'tb.cashIn', AIRTIME: 'tb.airtime', LOAD: 'ibid.kindLoad' } as const
 
 /**
- * Telebirr: the Owner loads money; sellers record cash-ins and airtime sold
- * from it, and both come off the balance. The report splits cash-in and
+ * Telebirr: each branch has its own Telebirr account. The Owner loads money
+ * into a branch; that branch's sellers record cash-ins and airtime sold from
+ * it, and both come off that branch's balance. The report splits cash-in and
  * airtime by branch and by seller for the chosen dates.
  */
 export default function Telebirr() {
@@ -32,8 +38,8 @@ export default function Telebirr() {
   const branchList = useBranchList()
 
   const now = new Date()
-  const [from, setFrom] = useState(isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
-  const [to, setTo] = useState(isoDay(now))
+  const [from, setFrom] = useSavedState('telebirr:from', isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
+  const [to, setTo] = useSavedState('telebirr:to', isoDay(now))
   const [branch, setBranch] = useState('')
 
   const [data, setData] = useState<TelebirrSummary | null>(null)
@@ -60,18 +66,45 @@ export default function Telebirr() {
     return () => controller.abort()
   }, [from, to, branch, isOwner, reloadKey])
 
+  // A load being corrected.
+  const [editingLoad, setEditingLoad] = useState<TelebirrSummary['entries'][number] | null>(null)
+  const [editingEntry, setEditingEntry] = useState<TelebirrSummary['entries'][number] | null>(null)
+
+  // The Owner changes anything; a supervisor their branch's cash-ins and
+  // airtime; a seller edits only their own from today.
+  const canEdit = (entry: TelebirrSummary['entries'][number]) =>
+    isOwner ||
+    (entry.kind !== 'LOAD' &&
+      (user?.role === 'SUPERVISOR' ||
+        (entry.by.id === user?.id && (entry.editable ?? businessDay(new Date(entry.at)) === businessDay()))))
+  // Sellers remove the same entries they may edit.
+  const canDelete = (entry: TelebirrSummary['entries'][number]) =>
+    isOwner || (entry.kind !== 'LOAD' && (user?.role === 'SUPERVISOR' || (user?.role === 'SALES' && canEdit(entry))))
+  const anyActions = (data?.entries ?? []).some((entry) => canEdit(entry) || canDelete(entry))
+  // Ticked rows: Edit acts on one, Delete on all of them.
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const keyOf = (entry: TelebirrSummary['entries'][number]) => `${entry.kind}-${entry.id}`
+  const tickedRows = (data?.entries ?? []).filter((entry) => ticked.has(keyOf(entry)))
+  const editOne = tickedRows.length === 1 && canEdit(tickedRows[0]) ? tickedRows[0] : null
+  const deletableRows = tickedRows.filter((entry) => canDelete(entry))
+
+  async function removeTicked() {
+    if (!window.confirm(t('ibid.removeConfirm'))) return
+    let failed = 0
+    for (const entry of deletableRows) {
+      try {
+        await api(`/api/telebirr/${entry.kind === 'LOAD' ? 'loads' : 'transactions'}/${entry.id}`, { method: 'DELETE' })
+      } catch {
+        failed += 1
+      }
+    }
+    setTicked(new Set())
+    if (failed > 0) push('error', t('bulk.someFailed', { n: failed }))
+    else push('success', t('ibid.removed'))
+    reload()
+  }
   const reload = () => setReloadKey((n) => n + 1)
 
-  async function remove(entry: TelebirrSummary['entries'][number]) {
-    if (!window.confirm(t('ibid.removeConfirm'))) return
-    try {
-      await api(`/api/telebirr/${entry.kind === 'LOAD' ? 'loads' : 'transactions'}/${entry.id}`, { method: 'DELETE' })
-      push('success', t('ibid.removed'))
-      reload()
-    } catch (caught) {
-      push('error', caught instanceof Error ? caught.message : 'Failed.')
-    }
-  }
 
   const splitTable = (
     title: string,
@@ -126,6 +159,18 @@ export default function Telebirr() {
               + {t('tb.load')}
             </button>
           ) : null}
+          {/* Supervisors and sellers see what is left in their branch's own
+              account right beside the button that spends it. */}
+          {!isOwner ? (
+            <div className={styles.headBalance}>
+              {t('tb.branchBalance')}:
+              {/* Keyed on the amount, so a new figure eases in. */}
+              <strong key={data?.balance ?? 'none'} className="tabular">
+                {/* Just the figure, e.g. 100,000: the label says what it is. */}
+                {data ? count(Math.round(Number(data.balance))) : '—'}
+              </strong>
+            </div>
+          ) : null}
           <button type="button" className={base.primary} onClick={() => setRecording(true)}>
             + {t('tb.record')}
           </button>
@@ -135,7 +180,7 @@ export default function Telebirr() {
       <div className={styles.tiles}>
         <div className={styles.main}>
           <strong className="tabular">{data ? currency(Number(data.balance)) : '—'}</strong>
-          <span>{t('tb.balance')}</span>
+          <span>{t(isOwner && !branch ? 'tb.balanceAll' : 'tb.balance')}</span>
         </div>
         <div>
           <strong className="tabular">{data ? currency(data.period.cashIn) : '—'}</strong>
@@ -180,6 +225,37 @@ export default function Telebirr() {
         {error ? <Empty>{error}</Empty> : null}
       </Card>
 
+      {/* The Owner's view of every branch's own account. */}
+      {isOwner && data ? (
+        <Card>
+          <h2 className={styles.sectionTitle}>{t('tb.branchBalances')}</h2>
+          {data.balances.length === 0 ? (
+            <Empty>{t('tb.none')}</Empty>
+          ) : (
+            <div className={base.scroll}>
+              <table className={base.table}>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('common.branch')}</th>
+                    <th scope="col">{t('tb.balance')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.balances.map((row) => (
+                    <tr key={row.id}>
+                      <td data-label={t('common.branch')} className={base.strong}>{row.name}</td>
+                      <td data-label={t('tb.balance')} className={`${base.strong} tabular`}>
+                        {currency(row.balance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : null}
+
       {data && user?.role !== 'SALES' ? splitTable(t('tb.byBranch'), data.byBranch) : null}
       {data ? splitTable(t('tb.bySeller'), data.bySeller.map((row) => ({ ...row, sub: row.branch }))) : null}
 
@@ -194,18 +270,47 @@ export default function Telebirr() {
             <table className={base.table}>
               <thead>
                 <tr>
+                  {anyActions ? <th scope="col" className={bulk.tick} /> : null}
                   <th scope="col">{t('req.date')}</th>
                   <th scope="col">{t('ibid.entry')}</th>
                   <th scope="col">{t('ibid.amountBirr')}</th>
                   <th scope="col">{t('common.branch')}</th>
                   <th scope="col">{t('ibid.by')}</th>
                   <th scope="col">{t('tb.customerPhone')}</th>
-                  {isOwner ? <th scope="col" /> : null}
+                  {anyActions ? (
+                    <th scope="col">
+                      <HeaderActions
+                        editEnabled={editOne != null}
+                        onEdit={() => editOne && (editOne.kind === 'LOAD' ? setEditingLoad(editOne) : setEditingEntry(editOne))}
+                        deleteCount={deletableRows.length}
+                        onDelete={() => void removeTicked()}
+                      />
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
                 {data.entries.map((entry) => (
                   <tr key={`${entry.kind}-${entry.id}`}>
+                    {anyActions ? (
+                      <td className={bulk.tick}>
+                        {canEdit(entry) || canDelete(entry) ? (
+                          <input
+                            type="checkbox"
+                            checked={ticked.has(keyOf(entry))}
+                            onChange={() =>
+                              setTicked((current) => {
+                                const next = new Set(current)
+                                if (next.has(keyOf(entry))) next.delete(keyOf(entry))
+                                else next.add(keyOf(entry))
+                                return next
+                              })
+                            }
+                            aria-label={t('bulk.tickRow')}
+                          />
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td data-label={t('req.date')}>{shortDate(entry.at)}</td>
                     <td data-label={t('ibid.entry')}>
                       <span className={styles.kind} data-kind={entry.kind === 'LOAD' ? 'LOAD' : 'PRINT'}>
@@ -220,13 +325,7 @@ export default function Telebirr() {
                     <td data-label={t('common.branch')}>{entry.branch?.name ?? '—'}</td>
                     <td data-label={t('ibid.by')}>{entry.by.name}</td>
                     <td data-label={t('tb.customerPhone')}>{entry.customerPhone ?? '—'}</td>
-                    {isOwner ? (
-                      <td>
-                        <button type="button" className={styles.remove} onClick={() => void remove(entry)}>
-                          {t('prod.delete')}
-                        </button>
-                      </td>
-                    ) : null}
+                    {anyActions ? <td /> : null}
                   </tr>
                 ))}
               </tbody>
@@ -237,10 +336,12 @@ export default function Telebirr() {
 
       {loading ? (
         <LoadTelebirrDialog
+          balances={data?.balances ?? []}
+          initialBranchId={branch || undefined}
           onClose={() => setLoading(false)}
-          onDone={(amount) => {
+          onDone={(amount, branchName) => {
             setLoading(false)
-            push('success', t('tb.loaded', { amount: currency(amount) }))
+            push('success', t('tb.loaded', { amount: currency(amount), branch: branchName }))
             reload()
           }}
         />
@@ -249,10 +350,38 @@ export default function Telebirr() {
       {recording ? (
         <RecordTelebirrDialog
           balance={Number(data?.balance ?? 0)}
+          balances={data?.balances ?? []}
           onClose={() => setRecording(false)}
           onDone={(message) => {
             setRecording(false)
             push('success', message)
+            reload()
+          }}
+        />
+      ) : null}
+
+      {editingEntry ? (
+        <RecordTelebirrDialog
+          balance={Number(data?.balance ?? 0)}
+          balances={data?.balances ?? []}
+          editing={editingEntry}
+          onClose={() => setEditingEntry(null)}
+          onDone={(message) => {
+            setEditingEntry(null)
+            push('success', message)
+            reload()
+          }}
+        />
+      ) : null}
+
+      {editingLoad ? (
+        <EditLoadDialog
+          path="/api/telebirr/loads"
+          load={editingLoad}
+          onClose={() => setEditingLoad(null)}
+          onDone={(amount) => {
+            setEditingLoad(null)
+            push('success', t('load.saved', { amount: currency(amount) }))
             reload()
           }}
         />

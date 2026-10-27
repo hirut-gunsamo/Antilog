@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import rowStyles from '../components/RowMenu.module.css'
+import { useSavedState } from '../lib/savedState'
+import { Link } from 'react-router-dom'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
-import { BarList, ColumnChart } from '../components/charts/Charts'
 import { DownloadButton } from '../components/DownloadButton'
 import { icons } from '../components/icons'
 import { RecordDialog } from '../components/nationalId/RecordDialog'
@@ -18,6 +19,7 @@ import { useToasts } from '../lib/toasts'
 import type {
   BranchRow,
   NationalIdBlankBalance,
+  NationalIdBlankEntry,
   NationalIdRecord,
   NationalIdSummary,
 } from '../lib/types'
@@ -65,18 +67,19 @@ export default function NationalId() {
   const [summary, setSummary] = useState<NationalIdSummary | null>(null)
   const [branches, setBranches] = useState<BranchRow[]>([])
   const [blanks, setBlanks] = useState<NationalIdBlankBalance[] | null>(null)
+  // Arrivals of blanks, so the Owner can correct one typed by mistake.
+  const [blankEntries, setBlankEntries] = useState<NationalIdBlankEntry[]>([])
+  const [editingBlanks, setEditingBlanks] = useState<NationalIdBlankEntry | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
-  const [range, setRange] = useState('month')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [range, setRange] = useSavedState('nid:range', 'month')
+  const [from, setFrom] = useSavedState('nid:from', '')
+  const [to, setTo] = useSavedState('nid:to', '')
   const [branch, setBranch] = useState('ALL')
   const [employee, setEmployee] = useState('ALL')
   const [page, setPage] = useState(1)
 
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [adding, setAdding] = useState(searchParams.get('new') === '1')
   const [receiving, setReceiving] = useState(false)
   const [editing, setEditing] = useState<NationalIdRecord | null>(null)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -85,11 +88,15 @@ export default function NationalId() {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const isOwner = user?.role === 'OWNER'
 
-  // Arriving from the sidebar's "Add New Record" opens the dialog once; the
-  // flag is cleared during render so a refresh does not reopen it.
-  if (searchParams.get('new') === '1') {
-    setSearchParams({}, { replace: true })
-    if (!adding) setAdding(true)
+  async function removeBlanks(entry: NationalIdBlankEntry) {
+    if (!window.confirm(t('nid.removeBlanksConfirm'))) return
+    try {
+      await api(`/api/national-id/blanks/${entry.id}`, { method: 'DELETE' })
+      push('success', t('nido.removed'))
+      setReloadKey((n) => n + 1)
+    } catch (caught) {
+      push('error', caught instanceof Error ? caught.message : t('nid.saveFailed'))
+    }
   }
 
   // Custom only takes effect once both ends are set, so a half-typed date
@@ -118,15 +125,16 @@ export default function NationalId() {
             `/api/national-id/summary?${params.toString()}`,
             { signal: controller.signal },
           ),
-          api<{ balances: NationalIdBlankBalance[] }>(
+          api<{ balances: NationalIdBlankBalance[]; entries?: NationalIdBlankEntry[] }>(
             '/api/national-id/blanks',
             { signal: controller.signal },
-          ).catch(() => ({ balances: [] as NationalIdBlankBalance[] })),
+          ).catch(() => ({ balances: [] as NationalIdBlankBalance[], entries: [] as NationalIdBlankEntry[] })),
         ])
 
         setRecords(list.records ?? [])
         setSummary(totals.summary)
         setBlanks(stock.balances ?? [])
+        setBlankEntries(stock.entries ?? [])
         setError(null)
       } catch (caught) {
         if (controller.signal.aborted) return
@@ -313,6 +321,17 @@ export default function NationalId() {
         </div>
 
         <div className={styles.headActions}>
+          {isOwner ? (
+            <>
+              <Link to="/national-id/original?printed=1" className={styles.ghost}>
+                {t('nido.printed')} {t('nido.titleOriginal')}
+              </Link>
+              <Link to="/national-id/copy?printed=1" className={styles.ghost}>
+                {t('nido.printed')} {t('nido.titleCopy')}
+              </Link>
+            </>
+          ) : null}
+
           <DownloadButton
             filename={exportName}
             note={t('sync.nItems', { n: count(filtered.length) })}
@@ -323,15 +342,6 @@ export default function NationalId() {
             <Icon name="download" size={15} />
             {t('common.export')}
           </DownloadButton>
-
-          <button
-            type="button"
-            className={styles.primary}
-            onClick={() => setAdding(true)}
-          >
-            <Icon name="plus" size={15} />
-            {t('nid.addRecord')}
-          </button>
         </div>
       </header>
 
@@ -491,31 +501,9 @@ export default function NationalId() {
                         data-label={t('common.actions')}
                         className={styles.actionsCol}
                       >
-                        <div className={styles.menuWrap}>
-                          <button
-                            type="button"
-                            className={styles.dots}
-                            aria-haspopup="menu"
-                            aria-expanded={openMenu === row.id}
-                            aria-label={t('a11y.actionsFor', {
-                              name: row.recordedBy.name,
-                            })}
-                            onClick={() =>
-                              setOpenMenu(openMenu === row.id ? null : row.id)
-                            }
-                          >
-                            <Icon name="more" size={16} />
-                          </button>
-
-                          {openMenu === row.id ? (
-                            <div
-                              className={styles.menu}
-                              role="menu"
-                              ref={menuRef}
-                            >
-                              <button
+                        <div className={rowStyles.actions}>
+                              <button className={rowStyles.action}
                                 type="button"
-                                role="menuitem"
                                 onClick={() => {
                                   setEditing(row)
                                   setOpenMenu(null)
@@ -525,15 +513,13 @@ export default function NationalId() {
                               </button>
                               <button
                                 type="button"
-                                role="menuitem"
-                                className={styles.menuDanger}
+                                className={rowStyles.danger}
                                 onClick={() => void remove(row)}
                               >
                                 {t('common.delete')}
                               </button>
-                            </div>
-                          ) : null}
-                        </div>
+                            
+</div>
                       </td>
                     </tr>
                   ))}
@@ -629,6 +615,39 @@ export default function NationalId() {
             </ul>
           )}
 
+          {isOwner && blankEntries.length > 0 ? (
+            <ul className={styles.blankList}>
+              {blankEntries.slice(0, 10).map((entry) => (
+                <li key={entry.id}>
+                  <span className={styles.blankBranch}>
+                    {shortDate(entry.createdAt)} · {entry.location.name}
+                  </span>
+                  <span className={styles.blankCounts}>
+                    <span>
+                      <em>{t('nid.originalId')}</em>
+                      <strong className="tabular">+{count(entry.originalAdded)}</strong>
+                    </span>
+                    <span>
+                      <em>{t('nid.copyId')}</em>
+                      <strong className="tabular">+{count(entry.copyAdded)}</strong>
+                    </span>
+                    <button type="button" className={styles.linkButton} onClick={() => setEditingBlanks(entry)}>
+                      {t('prod.edit')}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.linkButton}
+                      style={{ color: 'var(--danger)' }}
+                      onClick={() => void removeBlanks(entry)}
+                    >
+                      {t('prod.delete')}
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <p className={styles.blankHint}>{t('nid.blanksDerived')}</p>
         </Card>
 
@@ -659,42 +678,43 @@ export default function NationalId() {
       </div>
 
       {summary && summary.byBranch.length > 0 ? (
-        <div className={styles.charts}>
-          <Card
-            title={t('nid.byBranch')}
-            subtitle={`${summary.from} → ${summary.to}`}
-          >
-            {/* The note keeps the original/copy split visible per branch, so
-                the breakdown never collapses into a single number. */}
-            <BarList
-              data={summary.byBranch.map((entry) => ({
-                key: entry.locationId,
-                label: entry.name,
-                value: entry.total,
-                note: t('nid.splitOf', {
-                  original: count(entry.original),
-                  copy: count(entry.copy),
-                }),
-              }))}
-              valueFormat={(value) => count(value)}
-              emptyMessage={t('nid.nothingYet')}
-            />
-          </Card>
+        <Card title={t('nid.byBranch')} subtitle={`${summary.from} → ${summary.to}`}>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t('common.branch')}</th>
+                  <th scope="col">{t('dm.idOriginal')}</th>
+                  <th scope="col">{t('dm.idCopy')}</th>
+                  <th scope="col">{t('nid.total')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.byBranch.map((entry) => (
+                  <tr key={entry.locationId}>
+                    <td data-label={t('common.branch')}>{entry.name}</td>
+                    <td data-label={t('dm.idOriginal')} className="tabular">{count(entry.original)}</td>
+                    <td data-label={t('dm.idCopy')} className="tabular">{count(entry.copy)}</td>
+                    <td data-label={t('nid.total')} className="tabular">{count(entry.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : null}
 
-          <Card
-            title={t('nid.dailyTrend')}
-            subtitle={`${summary.from} → ${summary.to}`}
-          >
-            <ColumnChart
-              data={summary.trend.map((point) => ({
-                key: point.date,
-                label: point.date.slice(5),
-                value: point.original + point.copy,
-              }))}
-              valueFormat={(value) => count(value)}
-            />
-          </Card>
-        </div>
+      {editingBlanks ? (
+        <ReceiveBlanksDialog
+          balances={blanks ?? []}
+          editing={editingBlanks}
+          onClose={() => setEditingBlanks(null)}
+          onDone={(message) => {
+            setEditingBlanks(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
       ) : null}
 
       {receiving ? (
@@ -703,17 +723,6 @@ export default function NationalId() {
           onClose={() => setReceiving(false)}
           onDone={(message) => {
             setReceiving(false)
-            push('success', message)
-            setReloadKey((n) => n + 1)
-          }}
-        />
-      ) : null}
-
-      {adding ? (
-        <RecordDialog
-          onClose={() => setAdding(false)}
-          onDone={(message) => {
-            setAdding(false)
             push('success', message)
             setReloadKey((n) => n + 1)
           }}

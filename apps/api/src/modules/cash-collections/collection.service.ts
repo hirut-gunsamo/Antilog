@@ -2,6 +2,7 @@ import { Prisma } from "database";
 
 import { prisma } from "../../plugins/prisma.js";
 import type { Viewer } from "../../middleware/auth.js";
+import type { DeclareYadereInput } from "./collection.schema.js";
 
 /**
  * Cash moving from a salesperson to their supervisor.
@@ -71,6 +72,36 @@ export async function collectCash(
       notes: data.notes ?? null,
     },
     select: collectionDetail,
+  });
+}
+
+function localDayStart(value = new Date()) {
+  const day = new Date(value);
+  day.setHours(0, 0, 0, 0);
+  return day;
+}
+
+export async function declareYadere(data: DeclareYadereInput, viewer: Viewer) {
+  if (viewer.role !== "SALES") throw new Error("ONLY_SALES_DECLARES_YADERE");
+  const day = localDayStart();
+  return prisma.salesYadere.upsert({
+    where: { salespersonId_day: { salespersonId: viewer.userId, day } },
+    create: {
+      salespersonId: viewer.userId,
+      day,
+      amount: new Prisma.Decimal(data.amount),
+    },
+    update: { amount: new Prisma.Decimal(data.amount) },
+    select: { id: true, day: true, amount: true },
+  });
+}
+
+export async function getMyYadereToday(viewer: Viewer) {
+  if (viewer.role !== "SALES") throw new Error("ONLY_SALES_DECLARES_YADERE");
+  const day = localDayStart();
+  return prisma.salesYadere.findUnique({
+    where: { salespersonId_day: { salespersonId: viewer.userId, day } },
+    select: { id: true, day: true, amount: true },
   });
 }
 
@@ -149,12 +180,31 @@ export async function getTeamCash(viewer: Viewer) {
     orderBy: { name: "asc" },
   });
 
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const dayDeclared = await prisma.salesYadere.findMany({
+    where: {
+      salespersonId: { in: sellers.map((seller) => seller.id) },
+      day: { gte: start, lt: end },
+    },
+    select: { salespersonId: true, amount: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  const declaredBySeller = new Map<string, number>();
+  for (const row of dayDeclared) {
+    if (declaredBySeller.has(row.salespersonId)) continue;
+    declaredBySeller.set(row.salespersonId, row.amount.toNumber());
+  }
+
   const rows = await Promise.all(
     sellers.map(async (seller) => ({
       id: seller.id,
       name: seller.name,
       branch: seller.branch?.name ?? null,
-      inHand: (await cashInHandOf(seller.id)).toNumber(),
+      inHand: declaredBySeller.get(seller.id) ?? (await cashInHandOf(seller.id)).toNumber(),
     })),
   );
 

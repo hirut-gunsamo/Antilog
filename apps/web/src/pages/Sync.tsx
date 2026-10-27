@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BUSINESS_TZ } from '../lib/tz'
 
 import { Card, Empty } from '../components/Card'
 import { icons } from '../components/icons'
@@ -23,7 +24,6 @@ import {
 import { useToasts } from '../lib/toasts'
 import styles from './Sync.module.css'
 
-const INTERVALS = [1, 5, 15, 30, 60]
 
 function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) {
   return (
@@ -52,6 +52,7 @@ function stamp(iso: string) {
   if (Number.isNaN(date.getTime())) return '—'
 
   const time = date.toLocaleTimeString(undefined, {
+    timeZone: BUSINESS_TZ,
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -124,9 +125,7 @@ export default function Sync() {
     return Math.max(0, Math.round((at - now) / 60_000))
   }
 
-  const nextAuto = !state.settings.autoSync
-    ? t('sync.autoSyncOff')
-    : state.nextAutoSyncAt
+  const nextAuto = state.nextAutoSyncAt
       ? minutesUntil(state.nextAutoSyncAt) < 1
         ? t('sync.inOneMinute')
         : t('sync.inMinutes', { n: minutesUntil(state.nextAutoSyncAt) })
@@ -456,41 +455,7 @@ export default function Sync() {
 
           {showSettings ? (
             <Card title={t('sync.settings')}>
-              <label className={styles.toggleRow}>
-                <input
-                  type="checkbox"
-                  checked={state.settings.autoSync}
-                  onChange={(event) => {
-                    updateSettings({ autoSync: event.target.checked })
-                    push('success', t('sync.settingsSaved'))
-                  }}
-                />
-                <span>
-                  <strong>{t('sync.autoSync')}</strong>
-                  <em>{t('sync.autoSyncNote')}</em>
-                </span>
-              </label>
-
-              {state.settings.autoSync ? (
-                <label className={styles.field}>
-                  <span>{t('sync.interval')}</span>
-                  <select
-                    value={state.settings.intervalMinutes}
-                    onChange={(event) => {
-                      updateSettings({
-                        intervalMinutes: Number(event.target.value),
-                      })
-                      push('success', t('sync.settingsSaved'))
-                    }}
-                  >
-                    {INTERVALS.map((minutes) => (
-                      <option key={minutes} value={minutes}>
-                        {t('sync.everyNMinutes', { n: minutes })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+              <p className={styles.hint}>{t('sync.alwaysAuto')}</p>
 
               <div className={styles.group}>
                 <span className={styles.groupLabel}>{t('sync.whatToSync')}</span>

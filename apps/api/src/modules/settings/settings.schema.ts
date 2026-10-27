@@ -29,6 +29,8 @@ export const updateSettingsSchema = z
     // that does not charge still records the counts.
     nationalIdOriginalRate: z.coerce.number().min(0).max(100_000).optional(),
     nationalIdCopyRate: z.coerce.number().min(0).max(100_000).optional(),
+    // The fixed price of a SIM transfer.
+    simTransferPrice: z.coerce.number().min(0).max(100_000).optional(),
 
     lowHoldingSim: z.coerce.number().int().min(0).max(10_000).optional(),
     lowHoldingPhone: z.coerce.number().int().min(0).max(10_000).optional(),

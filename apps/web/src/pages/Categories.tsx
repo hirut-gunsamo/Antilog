@@ -1,23 +1,24 @@
 import { useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
 
+import {
+  BulkDeleteButton,
+  deleteSelected,
+  SelectAllCell,
+  SelectCell,
+  useSelection,
+} from '../components/BulkDelete'
 import { Card, Empty } from '../components/Card'
 import { CategoryDialog } from '../components/categories/CategoryDialog'
 import { Toasts } from '../components/Toasts'
 import { api } from '../lib/api'
-import { BUILT_IN, useCategories } from '../lib/categories'
+import { useCategories } from '../lib/categories'
 import { count } from '../lib/format'
-import { useT, type TranslationKey } from '../lib/i18n'
+import { useT } from '../lib/i18n'
 import { useToasts } from '../lib/toasts'
 import type { CategoryRow } from '../lib/types'
 import base from './Products.module.css'
 import styles from './Ibid.module.css'
-
-const KIND_KEY: Record<CategoryRow['kind'], TranslationKey> = {
-  SIM_CARD: 'cat.kindSim',
-  PHONE: 'cat.kindPhone',
-  AIRTIME_VOUCHER: 'cat.kindAirtime',
-  OTHER: 'cat.kindOther',
-}
 
 /**
  * The first step of the catalogue: the categories goods are grouped in. Then
@@ -29,6 +30,16 @@ export default function Categories() {
   const { toasts, push, dismiss } = useToasts()
   const { categories, loaded, reload } = useCategories()
   const [form, setForm] = useState<CategoryRow | 'new' | null>(null)
+  const selection = useSelection()
+
+
+  async function removeSelected() {
+    const ids = [...selection.selected]
+    if (await deleteSelected(ids, (id) => `/api/categories/${id}`, t, push)) {
+      selection.clear()
+      reload()
+    }
+  }
 
   async function remove(category: CategoryRow) {
     if (!window.confirm(t('cat.deleteConfirm', { name: category.name }))) return
@@ -66,22 +77,25 @@ export default function Categories() {
             <table className={base.table}>
               <thead>
                 <tr>
+                  <SelectAllCell ids={categories.map((category) => category.id)} selection={selection} />
                   <th scope="col">{t('cat.name')}</th>
-                  <th scope="col">{t('cat.how')}</th>
                   <th scope="col">{t('nav.productTypes')}</th>
                   <th scope="col">{t('nav.productList')}</th>
                   <th scope="col" className={base.actionsCol}>
-                    {t('common.actions')}
+                    <BulkDeleteButton
+                      count={selection.selected.size}
+                      onClick={() => void removeSelected()}
+                    />
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {categories.map((category) => (
                   <tr key={category.id}>
+                    <SelectCell id={category.id} name={category.name} selection={selection} />
                     <td data-label={t('cat.name')} className={base.strong}>
                       {category.name}
                     </td>
-                    <td data-label={t('cat.how')}>{t(KIND_KEY[category.kind])}</td>
                     <td data-label={t('nav.productTypes')} className="tabular">
                       {count(category._count?.types ?? 0)}
                     </td>
@@ -93,11 +107,9 @@ export default function Categories() {
                         <button type="button" className={styles.link} style={{ margin: 0 }} onClick={() => setForm(category)}>
                           {t('cat.rename')}
                         </button>
-                        {!BUILT_IN.has(category.id) ? (
-                          <button type="button" className={styles.remove} onClick={() => void remove(category)}>
-                            {t('prod.delete')}
-                          </button>
-                        ) : null}
+                        <button type="button" className={rowStyles.danger} onClick={() => void remove(category)}>
+                          {t('prod.delete')}
+                        </button>
                       </div>
                     </td>
                   </tr>

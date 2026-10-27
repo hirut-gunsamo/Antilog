@@ -62,6 +62,7 @@ function GeneralForm({
     draft.itemsPerPage !== settings.itemsPerPage ||
     draft.nationalIdOriginalRate !== settings.nationalIdOriginalRate ||
     draft.nationalIdCopyRate !== settings.nationalIdCopyRate ||
+    draft.simTransferPrice !== settings.simTransferPrice ||
     draft.lowHoldingSim !== settings.lowHoldingSim ||
     draft.lowHoldingPhone !== settings.lowHoldingPhone ||
     draft.lowHoldingVoucher !== settings.lowHoldingVoucher
@@ -84,6 +85,7 @@ function GeneralForm({
           itemsPerPage: draft.itemsPerPage,
           nationalIdOriginalRate: Number(draft.nationalIdOriginalRate),
           nationalIdCopyRate: Number(draft.nationalIdCopyRate),
+          simTransferPrice: Number(draft.simTransferPrice),
           lowHoldingSim: Number(draft.lowHoldingSim),
           lowHoldingPhone: Number(draft.lowHoldingPhone),
           lowHoldingVoucher: Number(draft.lowHoldingVoucher),
@@ -285,6 +287,22 @@ function GeneralForm({
                 onChange={(event) =>
                   setDraft({ ...draft, nationalIdCopyRate: event.target.value })
                 }
+                disabled={!canEdit}
+              />
+            </label>
+
+            {/* The fixed price a salesperson charges for a SIM transfer. */}
+            <label className={styles.field}>
+              <span>
+                {t('st.price')}
+                <em>{t('st.perTransfer')}</em>
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.simTransferPrice ?? '0'}
+                onChange={(event) => setDraft({ ...draft, simTransferPrice: event.target.value })}
                 disabled={!canEdit}
               />
             </label>

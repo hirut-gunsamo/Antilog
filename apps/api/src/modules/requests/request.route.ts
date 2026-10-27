@@ -8,12 +8,18 @@ import {
 
 import {
   createRequestController,
+  updateRequestController,
   getRequestsController,
   getRequestController,
   approveRequestController,
   rejectRequestController,
   cancelRequestController,
+  deleteRequestController,
   decideRequestItemsController,
+  receiveIssueController,
+  shipRequestsController,
+  approveQuantitiesController,
+  requestSourcesController,
 } from "./request.controller.js";
 
 type RequestParams = {
@@ -30,6 +36,13 @@ export async function requestRoutes(app: FastifyInstance) {
     getRequestsController,
   );
 
+  // Branches a supervisor can ask for stock directly.
+  app.get(
+    "/sources",
+    { preHandler: [authorize(UserRole.SUPERVISOR)] },
+    requestSourcesController,
+  );
+
   app.get<{ Params: RequestParams }>("/:id", getRequestController);
 
   // Anyone below the Owner raises one for their own branch.
@@ -39,6 +52,13 @@ export async function requestRoutes(app: FastifyInstance) {
       preHandler: [authorize(UserRole.SUPERVISOR, UserRole.SALES)],
     },
     createRequestController,
+  );
+
+  // The requester corrects a request nobody has decided yet.
+  app.put<{ Params: RequestParams }>(
+    "/:id",
+    { preHandler: [authorize(UserRole.SUPERVISOR, UserRole.SALES)] },
+    updateRequestController,
   );
 
   // Whoever the request was addressed to decides it. The service checks that
@@ -69,6 +89,29 @@ export async function requestRoutes(app: FastifyInstance) {
     rejectRequestController,
   );
 
+  // The Owner approves how many of each item go, without sending yet.
+  app.patch<{ Params: RequestParams }>(
+    "/:id/approve-quantities",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    approveQuantitiesController,
+  );
+
+  // One car for a branch: its decided requests go out as one shipment.
+  app.post(
+    "/ship",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    shipRequestsController,
+  );
+
+  // A salesperson confirms the goods issued to them are in their hands.
+  app.patch<{ Params: RequestParams }>(
+    "/:id/receive",
+    {
+      preHandler: [authorize(UserRole.SALES)],
+    },
+    receiveIssueController,
+  );
+
   // A supervisor may withdraw their own request while it is still pending
   app.patch<{ Params: RequestParams }>(
     "/:id/cancel",
@@ -79,4 +122,8 @@ export async function requestRoutes(app: FastifyInstance) {
     },
     cancelRequestController,
   );
+
+  // The Owner deletes any request; anyone else their own untouched pending
+  // one. The service enforces which.
+  app.delete<{ Params: RequestParams }>("/:id", deleteRequestController);
 }

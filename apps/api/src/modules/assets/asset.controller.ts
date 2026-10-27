@@ -1,5 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { z } from "zod";
+
 import { loadViewer } from "../../middleware/auth.js";
 
 import {
@@ -12,6 +14,7 @@ import {
   createAsset,
   deleteAsset,
   getAssets,
+  sendAsset,
   updateAsset,
 } from "./asset.service.js";
 
@@ -34,6 +37,15 @@ function handleError(
 
     case "ASSET_NOT_FOUND":
       return reply.status(404).send({ message: "Equipment not found" });
+
+    case "ASSET_NOT_USABLE":
+      return reply.status(409).send({ message: "Only equipment in use can be sent" });
+
+    case "ASSET_NOT_ENOUGH":
+      return reply.status(409).send({ message: "There are not that many of it to send" });
+
+    case "ASSET_SAME_BRANCH":
+      return reply.status(400).send({ message: "It is already at that branch" });
 
     default:
       return null;
@@ -133,6 +145,27 @@ export async function deleteAssetController(
     await deleteAsset(request.params.id);
 
     return reply.send({ message: "Equipment removed" });
+  } catch (error) {
+    return handleError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+const sendAssetSchema = z.object({
+  toBranchId: z.string().min(1),
+  quantity: z.coerce.number().int().positive().max(1_000_000),
+  note: z.string().trim().max(300).optional(),
+});
+
+/** The Owner sends equipment, all of an entry or some, to a branch. */
+export async function sendAssetController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const result = sendAssetSchema.safeParse(request.body);
+  if (!result.success) return reply.status(400).send({ message: "Choose the branch and how many" });
+
+  try {
+    return reply.send({ asset: await sendAsset(request.params.id, result.data) });
   } catch (error) {
     return handleError(error, reply) ?? Promise.reject(error);
   }

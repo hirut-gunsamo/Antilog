@@ -6,6 +6,7 @@ import type {
 import { loadViewer } from "../../middleware/auth.js";
 
 import {
+  branchStockSchema,
   stockInSchema,
   inventoryQuerySchema,
   unitsQuerySchema,
@@ -15,6 +16,8 @@ import {
 } from "./inventory.schema.js";
 
 import {
+  listBranchStock,
+  setBranchStock,
   stockIn,
   getInventory,
   getInventoryUnits,
@@ -76,6 +79,8 @@ export async function stockInController(
         LOCATION_NOT_FOUND: "Branch not found",
         LOCATION_INACTIVE:
           "This branch is closed and cannot receive stock",
+        BRANCH_REQUIRED: "Choose the branch this stock is for",
+        NO_MAIN_STORE: "There is no main store to keep the stock in",
         INVALID_UNIT_COUNT:
           "Serialized products require one unit record for each item",
         SIM_IDENTIFIER_REQUIRED:
@@ -225,6 +230,13 @@ const WRITE_ERRORS: Record<string, { status: number; message: string }> = {
   BALANCE_NOT_FOUND: { status: 404, message: "Stock row not found" },
   PRODUCT_NOT_FOUND: { status: 404, message: "Product not found" },
   LOCATION_INACTIVE: { status: 409, message: "That branch is closed" },
+  EDIT_BRANCH_SHARE: {
+    status: 409,
+    message: "The main store's stock is kept per branch: correct the branch's share instead",
+  },
+  BRANCH_REQUIRED: { status: 400, message: "Choose the branch" },
+  NO_MAIN_STORE: { status: 409, message: "There is no main store" },
+  NOT_ENOUGH_FOR_BRANCH: { status: 409, message: "The main store does not hold that much" },
   BALANCE_NOT_EMPTY: {
     status: 409,
     message:
@@ -347,4 +359,21 @@ export async function getHoldingsController(
   const holdings = await getHoldings(viewer, result.data.locationId);
 
   return reply.send({ holdings });
+}
+
+export async function listBranchStockController(
+  request: FastifyRequest<{ Querystring: { branchId?: string } }>,
+  reply: FastifyReply,
+) {
+  return reply.send({ stock: await listBranchStock({ branchId: request.query.branchId || undefined }) });
+}
+
+export async function setBranchStockController(request: FastifyRequest, reply: FastifyReply) {
+  const result = branchStockSchema.safeParse(request.body);
+  if (!result.success) return reply.status(400).send({ message: "Choose the branch, the product and the quantity" });
+  try {
+    return reply.send(await setBranchStock(result.data, request.user.userId));
+  } catch (error) {
+    return sendWriteError(reply, error);
+  }
 }

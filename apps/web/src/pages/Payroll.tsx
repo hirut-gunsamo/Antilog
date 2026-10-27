@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
 
 import { Card, Empty } from '../components/Card'
 import { PayDialog } from '../components/payroll/PayrollDialogs'
@@ -181,10 +182,10 @@ export default function Payroll() {
                     </td>
                     <td className={base.actionsCol}>
                       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-                        <button type="button" className={styles.link} style={{ margin: 0 }} onClick={() => setForm(row)}>
+                        <button type="button" className={rowStyles.action} style={{ margin: 0 }} onClick={() => setForm(row)}>
                           {t('prod.edit')}
                         </button>
-                        <button type="button" className={styles.remove} onClick={() => void undo(row)}>
+                        <button type="button" className={rowStyles.danger} onClick={() => void undo(row)}>
                           {t('prod.delete')}
                         </button>
                       </div>

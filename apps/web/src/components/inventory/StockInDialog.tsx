@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 
 import { api } from '../../lib/api'
-import { count, currency } from '../../lib/format'
+import { currency } from '../../lib/format'
 import { useCategories } from '../../lib/categories'
 import { useT } from '../../lib/i18n'
 import type { BranchRow, ProductRow, TypeNode } from '../../lib/types'
@@ -38,6 +38,7 @@ export function StockInDialog({
   const [products, setProducts] = useState<ProductRow[]>([])
   const [types, setTypes] = useState<TypeNode[]>([])
   const t = useT()
+  // The branches stock can be bought for.
   const [branches, setBranches] = useState<[string, string][]>([])
 
   // The Owner's categories; `kind` says whether the second step is a brand.
@@ -95,11 +96,13 @@ export function StockInDialog({
         // system that is every branch, so there was nowhere to put the first
         // delivery. Every signed-in user may list branches, and the list is
         // already scoped to them.
+        // Stock is bought for a branch: it is kept at the main store in that
+        // branch's share, so only the branches themselves are offered.
+        const active = (branchRes.branches ?? []).filter((row) => row.isActive && !row.isMainStock)
         setBranches(
-          (branchRes.branches ?? [])
-            .filter((row) => row.isActive)
-            .map((row): [string, string] => [row.id, row.name])
-            .sort((a, b) => a[1].localeCompare(b[1])),
+          active
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((row): [string, string] => [row.id, row.name]),
         )
       } catch (caught) {
         if (controller.signal.aborted) return
@@ -170,7 +173,7 @@ export function StockInDialog({
         method: 'POST',
         body: {
           productId: validProductId,
-          locationId,
+          forBranchId: locationId,
           quantity: qty,
           ...(note.trim() ? { note: note.trim() } : {}),
         },
@@ -288,23 +291,8 @@ export function StockInDialog({
               {product ? (
                 <dl className={styles.facts}>
                   <div>
-                    <dt>{t('prod.sku')}</dt>
-                    <dd className="tabular">{product.sku}</dd>
-                  </div>
-                  <div>
                     <dt>{t('prod.price')}</dt>
                     <dd className="tabular">{currency(Number(product.price))}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('prod.inStock')}</dt>
-                    <dd className="tabular">
-                      {count(
-                        product.inventoryBalances.reduce(
-                          (sum, balance) => sum + balance.quantity,
-                          0,
-                        ),
-                      )}
-                    </dd>
                   </div>
                   {detailOf(product) ? (
                     <div>
@@ -318,7 +306,9 @@ export function StockInDialog({
           )}
 
           <label className={styles.field}>
-            <span>{t('common.branch')}</span>
+            <span>
+              {t('inv.forBranch')}<em>{t('common.required')}</em>
+            </span>
             <select
               value={locationId}
               onChange={(event) => setLocationId(event.target.value)}

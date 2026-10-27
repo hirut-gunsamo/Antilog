@@ -5,6 +5,7 @@ import { authenticate, authorize } from "../../middleware/auth.js";
 
 import {
   backupController,
+  eraseAllController,
   getPermissionsController,
   getSettingsController,
   resetSettingsController,
@@ -46,5 +47,12 @@ export async function settingsRoutes(app: FastifyInstance) {
     "/restore",
     { preHandler: [authorize(UserRole.OWNER)] },
     restoreController,
+  );
+
+  // Empties every record and the catalogue; logins and branches stay.
+  app.post<{ Body: { confirm?: unknown } }>(
+    "/erase-all",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    eraseAllController,
   );
 }

@@ -527,17 +527,17 @@ function scheduleAuto() {
     timer = null
   }
 
-  if (!state.settings.autoSync) {
-    set({ nextAutoSyncAt: null })
-    return
-  }
-
-  const delay = Math.max(1, state.settings.intervalMinutes) * 60_000
+  // Always automatic, nothing to set: anything waiting is tried again every
+  // half minute until it is through; with nothing waiting, a quiet check each
+  // minute picks up a connection the browser did not announce.
+  const delay = state.outbox.length > 0 ? 30_000 : 60_000
 
   set({ nextAutoSyncAt: Date.now() + delay })
 
   timer = window.setTimeout(() => {
-    if (state.online && !state.syncing) void syncNow()
+    if (state.syncing) scheduleAuto()
+    else if (state.outbox.length > 0 && navigator.onLine) void syncNow()
+    else if (state.online) void syncNow()
     else scheduleAuto()
   }, delay)
 }
@@ -562,6 +562,14 @@ export function startSync() {
 
   window.addEventListener('offline', () => {
     set({ online: false, nextAutoSyncAt: null })
+  })
+
+  // Opening the app again (or switching back to it) is a good moment too.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine && state.outbox.length > 0 && !state.syncing) {
+      set({ online: true })
+      void syncNow()
+    }
   })
 
   void refreshPending()

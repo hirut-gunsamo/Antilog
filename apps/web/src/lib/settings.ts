@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import { BUSINESS_TZ, businessDay } from './tz'
 
 import type { AppSettings, DateFormat, TimeFormat } from './types'
 
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lowHoldingVoucher: 20,
   nationalIdOriginalRate: '5',
   nationalIdCopyRate: '5',
+  simTransferPrice: '0',
   notifySales: true,
   notifyRequests: true,
   notifyApprovals: true,
@@ -63,15 +65,16 @@ export function formatDate(value: string, format: DateFormat) {
   if (Number.isNaN(date.getTime())) return value
 
   if (format === 'iso') {
-    return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+    return businessDay(date)
   }
 
   if (format === 'short') {
-    return date.toLocaleDateString('en-GB')
+    return date.toLocaleDateString('en-GB', { timeZone: BUSINESS_TZ })
   }
 
   if (format === 'long') {
     return date.toLocaleDateString('en-GB', {
+      timeZone: BUSINESS_TZ,
       day: 'numeric',
       month: 'long',
       year: 'numeric',
@@ -79,6 +82,7 @@ export function formatDate(value: string, format: DateFormat) {
   }
 
   return date.toLocaleDateString('en-US', {
+    timeZone: BUSINESS_TZ,
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -90,6 +94,7 @@ export function formatTime(value: string, format: TimeFormat) {
   if (Number.isNaN(date.getTime())) return ''
 
   return date.toLocaleTimeString(format === '12h' ? 'en-US' : 'en-GB', {
+    timeZone: BUSINESS_TZ,
     hour: '2-digit',
     minute: '2-digit',
     hour12: format === '12h',

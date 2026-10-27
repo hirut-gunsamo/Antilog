@@ -12,6 +12,8 @@ import {
   getProductController,
   updateProductController,
   deleteProductController,
+  setBranchPriceController,
+  removeBranchPriceController,
 } from "./product.controller.js";
 
 type ProductParams = {
@@ -52,5 +54,19 @@ export async function productRoutes(app: FastifyInstance) {
       preHandler: [authorize(UserRole.OWNER)],
     },
     deleteProductController,
+  );
+
+  // A product's selling price at one branch: set or changed, or removed so
+  // the branch sells at the product's own price.
+  app.put<{ Params: { id: string; branchId: string } }>(
+    "/:id/prices/:branchId",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    setBranchPriceController,
+  );
+
+  app.delete<{ Params: { id: string; branchId: string } }>(
+    "/:id/prices/:branchId",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    removeBranchPriceController,
   );
 }

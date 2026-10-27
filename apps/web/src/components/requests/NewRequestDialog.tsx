@@ -4,15 +4,16 @@ import { api } from '../../lib/api'
 import { sendOrQueue } from '../../lib/sync'
 import { useT } from '../../lib/i18n'
 import { CATEGORY_KEY, CATEGORY_ORDER, count } from '../../lib/format'
+import { requestRef } from '../../lib/requests'
+import { cartaSuffix } from '../../lib/stock'
 import type {
   CatalogueProduct,
   Holding,
   InventorySummary,
+  StockRequest,
   StockRequestKind,
 } from '../../lib/types'
 import styles from '../inventory/Panel.module.css'
-
-type Line = { productId: string; quantity: string }
 
 const TITLE_KEY = {
   RESTOCK: 'dlg.newRequest',
@@ -23,7 +24,7 @@ const TITLE_KEY = {
 const NOTE_KEY = {
   RESTOCK: 'dlg.newRequestNote',
   ISSUE: 'dlg.takeItemsNote',
-  RETURN: 'dlg.handBackNote',
+  RETURN: null,
 } as const
 
 /**
@@ -36,28 +37,48 @@ const NOTE_KEY = {
  * out of ten and typing it again invites mistakes.
  */
 export function NewRequestDialog({
-  kind = 'RESTOCK',
+  kind: kindProp = 'RESTOCK',
   onClose,
   onDone,
+  editing,
+  branchOnly = false,
 }: {
+  /** Asking another branch's supervisor, never the Owner. */
+  branchOnly?: boolean
   kind?: StockRequestKind
   onClose: () => void
   onDone: (message: string) => void
+  /** A request nobody has decided yet, being corrected. */
+  editing?: StockRequest
 }) {
+  const kind = editing?.kind ?? kindProp
   const isReturn = kind === 'RETURN'
 
-  // A salesperson works from a fixed list: every item the branch sells, with a
-  // box against each. They are asking for "100 SIM cards, 50 of that phone, 10
-  // of the 15-birr voucher" and reading it back at a glance matters more than
-  // saving a few rows — picking products one by one from a menu is slower and
-  // easier to get wrong when it is done every morning.
-  const asGrid = kind !== 'RESTOCK'
+  // Everyone works from a fixed list: every item the branch sells, with a
+  // box against each, grouped by category. They only type how many they
+  // want; picking products one by one from a menu is slower and easier to
+  // get wrong when it is done every day.
   const [products, setProducts] = useState<CatalogueProduct[]>([])
   const t = useT()
   const [onHand, setOnHand] = useState<Map<string, number>>(new Map())
-  const [lines, setLines] = useState<Line[]>([{ productId: '', quantity: '' }])
-  const [grid, setGrid] = useState<Record<string, string>>({})
-  const [note, setNote] = useState('')
+  const [grid, setGrid] = useState<Record<string, string>>(() =>
+    Object.fromEntries((editing?.items ?? []).map((item) => [item.product.id, String(item.quantity)])),
+  )
+  const [note, setNote] = useState(editing?.notes ?? '')
+  // A supervisor's restock goes to the Owner, or straight to another
+  // branch's supervisor, who sends the goods.
+  const asksBranch = kind === 'RESTOCK' && !editing
+  const [askBranches, setAskBranches] = useState<{ id: string; name: string }[]>([])
+  const [fromBranchId, setFromBranchId] = useState('')
+
+  useEffect(() => {
+    if (!asksBranch) return
+    const controller = new AbortController()
+    api<{ branches: { id: string; name: string }[] }>('/api/requests/sources', { signal: controller.signal })
+      .then((payload) => setAskBranches(payload.branches ?? []))
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [asksBranch])
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,7 +122,7 @@ export function NewRequestDialog({
           setOnHand(new Map(held.map((item) => [item.productId, item.remaining])))
 
           // What is left is what they hand back, so the boxes open filled in.
-          setGrid(
+          if (!editing) setGrid(
             Object.fromEntries(
               held.map((item) => [item.productId, String(item.remaining)]),
             ),
@@ -143,33 +164,7 @@ export function NewRequestDialog({
     void load()
 
     return () => controller.abort()
-  }, [isReturn])
-
-  const priced = lines.map((line) => {
-    const product = products.find((entry) => entry.id === line.productId)
-    const qty = Number(line.quantity)
-
-    return {
-      ...line,
-      product,
-      qty,
-      valid: product != null && Number.isInteger(qty) && qty > 0,
-    }
-  })
-
-  const totalUnits = priced.reduce(
-    (sum, line) => sum + (line.valid ? line.qty : 0),
-    0,
-  )
-
-  // The same product twice would be two lines the Owner has to reconcile.
-  const chosen = new Set<string>()
-  const duplicated = priced.some((line) => {
-    if (line.productId === '') return false
-    if (chosen.has(line.productId)) return true
-    chosen.add(line.productId)
-    return false
-  })
+  }, [isReturn, editing])
 
   // Grid entries: a blank box means "none of that today", not an error, so
   // only the filled ones count and only they are sent.
@@ -201,15 +196,7 @@ export function NewRequestDialog({
   const gridValid =
     gridLines.every((line) => line.valid) && gridTotal > 0
 
-  const canSubmit = asGrid
-    ? !busy && gridValid
-    : !busy && priced.length > 0 && priced.every((l) => l.valid) && !duplicated
-
-  function setLine(index: number, patch: Partial<Line>) {
-    setLines((current) =>
-      current.map((line, i) => (i === index ? { ...line, ...patch } : line)),
-    )
-  }
+  const canSubmit = !busy && gridValid && (!branchOnly || fromBranchId !== '')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -221,6 +208,23 @@ export function NewRequestDialog({
     try {
       // Same reasoning as a sale: a branch that has run out should be able to
       // ask for stock whether or not the link is up at that moment.
+      // A correction goes straight to the server: it must see the request as
+      // it stands now.
+      if (editing) {
+        await api(`/api/requests/${editing.id}`, {
+          method: 'PUT',
+          body: {
+            kind,
+            items: gridLines
+              .filter((line) => !line.blank && line.qty > 0)
+              .map((line) => ({ productId: line.product.id, quantity: line.qty })),
+            ...(!isReturn && note.trim() ? { notes: note.trim() } : {}),
+          },
+        })
+        onDone(t('req.edited'))
+        return
+      }
+
       const sent = await sendOrQueue({
         method: 'POST',
         path: '/api/requests',
@@ -228,18 +232,14 @@ export function NewRequestDialog({
         entity: 'requests',
         body: {
           kind,
-          items: asGrid
-            ? gridLines
-                .filter((line) => !line.blank && line.qty > 0)
-                .map((line) => ({
-                  productId: line.product.id,
-                  quantity: line.qty,
-                }))
-            : priced.map((line) => ({
-                productId: line.productId,
-                quantity: line.qty,
-              })),
-          ...(note.trim() ? { notes: note.trim() } : {}),
+          items: gridLines
+            .filter((line) => !line.blank && line.qty > 0)
+            .map((line) => ({
+              productId: line.product.id,
+              quantity: line.qty,
+            })),
+          ...(!isReturn && note.trim() ? { notes: note.trim() } : {}),
+          ...(asksBranch && fromBranchId ? { fromBranchId } : {}),
         },
       })
 
@@ -250,20 +250,10 @@ export function NewRequestDialog({
             ? t('done.handedBack', {
                 units: t('dlg.units', { n: count(gridTotal) }),
               })
-          : asGrid
-            ? t('done.requested', {
-                units: t('dlg.units', { n: count(gridTotal) }),
-                n: gridLines.filter((line) => !line.blank && line.qty > 0)
-                  .length,
-              })
-          : priced.length === 1
-            ? t('done.requestedOne', {
-                units: t('dlg.units', { n: count(totalUnits) }),
-              })
-            : t('done.requested', {
-                units: t('dlg.units', { n: count(totalUnits) }),
-                n: priced.length,
-              }),
+          : t('done.requested', {
+              units: t('dlg.units', { n: count(gridTotal) }),
+              n: gridLines.filter((line) => !line.blank && line.qty > 0).length,
+            }),
       )
     } catch (caught) {
       setError(
@@ -285,8 +275,8 @@ export function NewRequestDialog({
       >
         <header className={styles.head}>
           <div>
-            <h2>{t(TITLE_KEY[kind])}</h2>
-            <p>{t(NOTE_KEY[kind])}</p>
+            <h2>{editing ? `${t('req.editTitle')} · ${requestRef(editing)}` : t(branchOnly ? 'tr.askBranch' : TITLE_KEY[kind])}</h2>
+            {NOTE_KEY[kind] ? <p>{t(NOTE_KEY[kind])}</p> : null}
           </div>
           <button type="button" onClick={onClose} aria-label={t('common.close')}>
             ✕
@@ -294,8 +284,21 @@ export function NewRequestDialog({
         </header>
 
         <form className={styles.body} onSubmit={handleSubmit}>
-          {asGrid ? (
-            <>
+          {asksBranch ? (
+            <label className={styles.field}>
+              <span>{t('req.askWho')}</span>
+              <select value={fromBranchId} onChange={(event) => setFromBranchId(event.target.value)} required={branchOnly}>
+                <option value="">{t(branchOnly ? 'req.pickBranch' : 'req.askOwner')}</option>
+                {askBranches.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {t('req.askBranch', { branch: entry.name })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          <>
               {products.length === 0 ? (
                 <p className={styles.none}>
                   {isReturn ? t('hold.nothing') : t('common.loading')}
@@ -305,8 +308,9 @@ export function NewRequestDialog({
               {CATEGORY_ORDER.filter((category) =>
                 gridLines.some((line) => line.product.category === category),
               ).map((category) => (
-                <section key={category} className={styles.gridGroup}>
-                  <h3 className={styles.gridHead}>{t(CATEGORY_KEY[category])}</h3>
+                // Each category folds open and shut, so a long list stays short.
+                <details key={category} className={styles.gridGroup} open>
+                  <summary className={styles.gridHead}>{t(CATEGORY_KEY[category])}</summary>
 
                   {gridLines
                     .filter((line) => line.product.category === category)
@@ -316,7 +320,7 @@ export function NewRequestDialog({
                           {line.product.name}
                           <em className={styles.sub}>
                             {t(isReturn ? 'dlg.youHold' : 'dlg.onHand', {
-                              n: count(onHand.get(line.product.id) ?? 0),
+                              n: `${count(onHand.get(line.product.id) ?? 0)}${cartaSuffix(line.product.category)}`,
                             })}
                           </em>
                         </span>
@@ -347,7 +351,7 @@ export function NewRequestDialog({
                         />
                       </label>
                     ))}
-                </section>
+                </details>
               ))}
 
               <div className={styles.saleTotal}>
@@ -359,98 +363,18 @@ export function NewRequestDialog({
                 </strong>
               </div>
             </>
-          ) : (
-            <>
-            {priced.map((line, index) => (
-              <div key={index} className={styles.saleLine}>
-                <label className={styles.field}>
-                  <span>{t('dlg.item', { n: index + 1 })}</span>
-                  <select
-                    value={line.productId}
-                    onChange={(event) =>
-                      setLine(index, { productId: event.target.value })
-                    }
-                    required
-                  >
-                    <option value="">{t("dlg.selectProduct")}</option>
-                    {products.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.name} ·{' '}
-                        {t(isReturn ? 'dlg.youHold' : 'dlg.onHand', {
-                          n: count(onHand.get(entry.id) ?? 0),
-                        })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
 
-                <label className={styles.qtyField}>
-                  <span>{t('dlg.qty')}</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={line.quantity}
-                    onChange={(event) =>
-                      setLine(index, { quantity: event.target.value })
-                    }
-                    required
-                  />
-                </label>
-
-                {lines.length > 1 ? (
-                  <button
-                    type="button"
-                    className={styles.removeLine}
-                    onClick={() =>
-                      setLines((current) => current.filter((_, i) => i !== index))
-                    }
-                    aria-label={t('a11y.removeItem', { n: index + 1 })}
-                  >
-                    ✕
-                  </button>
-                ) : null}
-              </div>
-            ))}
-
-            <button
-              type="button"
-              className={styles.addLine}
-              onClick={() =>
-                setLines((current) => [
-                  ...current,
-                  { productId: '', quantity: '' },
-                ])
-              }
-            >
-              {t('dlg.addAnother')}
-            </button>
-
-            {duplicated ? (
-              <p className={styles.tally} data-bad="">
-  {t('dlg.duplicateProduct')}
-              </p>
-            ) : totalUnits > 0 ? (
-              <div className={styles.saleTotal}>
-                <span>{t(isReturn ? 'dlg.totalReturned' : 'dlg.totalRequested')}</span>
-                <strong className="tabular">{t('dlg.units', { n: count(totalUnits) })}</strong>
-              </div>
-            ) : null}
-
-            </>
-          )}
-
-          <label className={styles.field}>
-            <span>{t('dlg.note')}</span>
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              maxLength={500}
-              placeholder={t(
-                isReturn ? 'dlg.phReturnNote' : 'dlg.phRequestNote',
-              )}
-            />
-          </label>
+          {!isReturn ? (
+            <label className={styles.field}>
+              <span>{t('dlg.note')}</span>
+              <input
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                maxLength={500}
+                placeholder={t('dlg.phRequestNote')}
+              />
+            </label>
+          ) : null}
 
           {error ? <p className={styles.error}>{error}</p> : null}
 

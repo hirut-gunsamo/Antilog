@@ -35,7 +35,7 @@ export default function Login() {
 
   return (
     <div className={styles.page}>
-      <form className={styles.card} onSubmit={handleSubmit}>
+      <form className={styles.card} onSubmit={handleSubmit} autoComplete="off">
         <div className={styles.brand}>
           <Logo size={46} />
           <div>
@@ -50,7 +50,9 @@ export default function Login() {
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            autoComplete="username"
+            // Not offered to the browser's password manager: anyone at a
+            // shared computer could otherwise sign in as the last person.
+            autoComplete="off"
             placeholder="you@example.com"
             required
           />
@@ -61,7 +63,7 @@ export default function Login() {
           <PasswordInput
                         value={password}
             onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
+            autoComplete="new-password"
             placeholder="••••••••"
             required
           />

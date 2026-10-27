@@ -24,6 +24,8 @@ export type ListTransfersQuery = z.infer<
 >;
 
 export const createTransferSchema = z.object({
+  // The Owner's own send to a branch, listed on its own page.
+  directSend: z.boolean().optional(),
   fromLocationId: z.string().min(1),
   toLocationId: z.string().min(1),
   items: z

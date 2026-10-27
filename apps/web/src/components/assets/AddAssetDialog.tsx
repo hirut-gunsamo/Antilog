@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { businessDay } from '../../lib/tz'
 
 import { api } from '../../lib/api'
 import { useT, type TranslationKey } from '../../lib/i18n'
@@ -14,11 +15,7 @@ const CATEGORIES: { value: AssetCategory; labelKey: TranslationKey }[] = [
 
 /** Today, as the date input wants it. */
 function todayIso() {
-  const now = new Date()
-  const month = `${now.getMonth() + 1}`.padStart(2, '0')
-  const day = `${now.getDate()}`.padStart(2, '0')
-
-  return `${now.getFullYear()}-${month}-${day}`
+  return businessDay()
 }
 
 /**

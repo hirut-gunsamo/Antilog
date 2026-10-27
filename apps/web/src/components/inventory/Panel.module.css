@@ -656,6 +656,25 @@
   color: var(--muted);
 }
 
+summary.gridHead {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+}
+
+summary.gridHead::-webkit-details-marker {
+  display: none;
+}
+
+summary.gridHead::after {
+  content: '▾';
+}
+
+details.gridGroup:not([open]) > summary.gridHead::after {
+  content: '▸';
+}
+
 .gridRow {
   display: flex;
   align-items: center;
@@ -1069,5 +1088,96 @@
 @media (max-width: 420px) {
   .lineGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Sale form: goods handed over but not yet received, with Receive now. */
+.receiveBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.receiveBox p {
+  margin: 0;
+}
+
+.receiveBox strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.receiveBox ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.receiveBox button {
+  align-self: flex-start;
+}
+
+/* The ICCID range of SIM cards handed to a salesperson: first and last. */
+.iccidRange {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* A figure worked out for the person (the cash part of Cash + Transfer):
+   shown in a box like the fields around it, but not one they can type in. */
+.field input:disabled {
+  background: var(--surface-2);
+  color: var(--text);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Cash + Transfer's total under its two parts: a plain line, no box. */
+.mixedTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.mixedTotal strong {
+  font-size: 17px;
+  color: var(--text);
+}
+
+/* One bill paid with a sale: kind, account, amount, remove. */
+.billRow {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.billRow input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+@media (max-width: 560px) {
+  .billRow {
+    grid-template-columns: 1fr 1fr;
   }
 }

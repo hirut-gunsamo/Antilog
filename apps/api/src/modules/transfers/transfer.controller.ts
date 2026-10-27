@@ -79,10 +79,15 @@ function handleTransferError(
           "Only the receiving branch can confirm this transfer",
       });
 
+    case "NOT_ENOUGH_FOR_BRANCH":
+      return reply.status(409).send({
+        message: "Not enough stock held for that branch to ship this transfer",
+      });
+
     case "INSUFFICIENT_SOURCE_STOCK":
       return reply.status(409).send({
         message:
-          "The source branch no longer has enough stock to ship this transfer",
+          "Not enough stock to ship this transfer (from the main store, only that branch's share counts)",
         shortages: (error as Error & { shortages?: Shortage[] })
           .shortages,
       });

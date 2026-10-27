@@ -167,6 +167,7 @@ model User {
   requestsCreated  StockRequest[] @relation("RequestsCreated")
   requestsReceived StockRequest[] @relation("RequestsReceived")
   requestsApproved StockRequest[] @relation("RequestsApproved")
+  requestsTaken    StockRequest[] @relation("RequestsReceivedBy")
 
   transfersDelivered StockTransfer[] @relation("TransfersDelivered")
   transfersReceived  StockTransfer[] @relation("TransfersReceived")
@@ -186,11 +187,14 @@ model User {
   nationalIdRecords NationalIdRecord[]     @relation("NationalIdRecorded")
   nationalIdStock   NationalIdStockEntry[] @relation("NationalIdStockReceived")
   assetsRecorded    OfficeAsset[]          @relation("AssetsRecorded")
+  editGrants        EditGrant[]
+  paymentEditGrants PaymentEditGrant[]
 
   stockMovements StockMovement[]
 
   /// What this salesperson currently holds to sell today.
   holdings SalespersonHolding[]
+  yadereDeclarations SalesYadere[]
 
   cashCollected   CashCollection[] @relation("CashCollected")
   cashHandedOver  CashCollection[] @relation("CashHandedOver")
@@ -205,9 +209,12 @@ model User {
   payrollRecorded   PayrollPayment[] @relation("PayrollRecorded")
   commissionsPaid   CommissionPayment[] @relation("CommissionPaid")
   commissionsRecorded CommissionPayment[] @relation("CommissionRecorded")
+  deductionsOwed     Deduction[] @relation("DeductionsOwed")
+  deductionsRecorded Deduction[] @relation("DeductionsRecorded")
   telebirrLoads     TelebirrLoad[]
   telebirrRecorded  TelebirrTransaction[]
   expensesRecorded  Expense[]
+  expensesSpent     Expense[] @relation("ExpensesSpent")
   nidRequests       NationalIdRequest[] @relation("NidRequested")
   nidForwarded      NationalIdRequest[] @relation("NidForwarded")
   nidReturned       NationalIdRequest[] @relation("NidReturned")
@@ -229,6 +236,9 @@ model Product {
   category    ProductCategory
   description String?
   price       Decimal         @db.Decimal(12, 2)
+  /// What the business pays for one, for profit and loss. Owner only;
+  /// empty until the Owner enters it.
+  costPrice   Decimal?        @db.Decimal(12, 2)
   status      ProductStatus   @default(ACTIVE)
 
   typeId String?
@@ -252,12 +262,32 @@ model Product {
   stockMovements StockMovement[]
   holdings       SalespersonHolding[]
   commissionLines CommissionLine[]
+  deductionLines  DeductionLine[]
+  branchPrices    ProductBranchPrice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([category])
   @@index([status])
+
+  branchStock BranchStock[]
+}
+
+/// A product's selling price at one branch. A branch without a row sells at
+/// the product's own price; the Owner sets and removes these.
+model ProductBranchPrice {
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  locationId String
+  location   StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  price Decimal @db.Decimal(12, 2)
+
+  updatedAt DateTime @updatedAt
+
+  @@id([productId, locationId])
+  @@index([locationId])
 }
 
 /// A brand, a voucher type, or a phone model — the level between a fixed
@@ -341,9 +371,9 @@ model StockLocation {
   name String       @unique
   type LocationType
 
-  // A branch that can act as a stock source for other branches. More than one
-  // is allowed; at least one must always exist and be active. A main-stock
-  // branch is still an ordinary selling branch.
+  // A main store: holds stock and sends it to the branches. More than one is
+  // allowed; at least one must always exist and be active. Nothing is sold at
+  // a main store and no salesperson works there.
   isMainStock Boolean @default(false)
 
   // Closed branches are deactivated, never deleted, so their sales history
@@ -354,6 +384,8 @@ model StockLocation {
   users User[]
 
   balances InventoryBalance[]
+  // The Owner's stock set aside for this branch at the main store.
+  branchStock BranchStock[] @relation("BranchStockFor")
   units    InventoryUnit[]
 
   transfersFrom StockTransfer[] @relation("TransferFromLocation")
@@ -372,13 +404,39 @@ model StockLocation {
   nationalIdStock   NationalIdStockEntry[]
   officeAssets      OfficeAsset[]
   bankReceipts      BankReceipt[]
+  ibidLoads         IbidLoad[]
   ibidPrints        IbidPrint[]
+  telebirrLoads        TelebirrLoad[]
   telebirrTransactions TelebirrTransaction[]
   expenses          Expense[]
   nidRequests       NationalIdRequest[]
   nidOrders         NationalIdOrder[]
+  nidPrice          NationalIdBranchPrice?
+  productPrices     ProductBranchPrice[]
 
   @@index([type])
+}
+
+/// The Owner's stock at the main store, split by the branch it is for: the
+/// SIM cards bought for Bensa only work at Bensa, so a request from Bensa is
+/// filled only from Bensa's share. The main store's balance is the sum of
+/// the shares.
+model BranchStock {
+  id String @id @default(cuid())
+
+  branchId  String
+  productId String
+
+  quantity Int @default(0)
+
+  branch  StockLocation @relation("BranchStockFor", fields: [branchId], references: [id], onDelete: Cascade)
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([branchId, productId])
+  @@index([productId])
 }
 
 model InventoryBalance {
@@ -453,10 +511,18 @@ model StockRequest {
 
   notes           String?
   rejectionReason String?
+  /// A salesperson's optional cash left on hand at hand-back time (yadere).
+  leftOnHand      Decimal? @db.Decimal(12, 2)
 
   submittedAt DateTime  @default(now())
   reviewedAt  DateTime?
   fulfilledAt DateTime?
+
+  /// A salesperson's issue: they press Received when the goods are in their
+  /// hands, and only then are they answerable for them.
+  receivedAt   DateTime?
+  receivedById String?
+  receivedBy   User?     @relation("RequestsReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
 
   requestedBy User @relation("RequestsCreated", fields: [requestedById], references: [id])
 
@@ -466,7 +532,12 @@ model StockRequest {
 
   items StockRequestItem[]
 
-  transfer StockTransfer?
+  transfer StockTransfer? @relation("TransferForRequest")
+
+  /// The one car this request's approved goods went in. Several requests from
+  /// a branch (one per category) share a shipment.
+  shipmentId String?
+  shipment   StockTransfer? @relation("ShipmentRequests", fields: [shipmentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -475,6 +546,7 @@ model StockRequest {
   @@index([requestedToId])
   @@index([status])
   @@index([kind])
+  @@index([shipmentId])
 }
 
 /// Cash handed from a salesperson to their supervisor during the day.
@@ -530,6 +602,24 @@ model SalespersonHolding {
   @@index([productId])
 }
 
+/// A salesperson's declared cash left in hand (yadere) for one day.
+model SalesYadere {
+  id String @id @default(cuid())
+
+  salespersonId String
+  day           DateTime
+  amount        Decimal @db.Decimal(12, 2)
+
+  salesperson User @relation(fields: [salespersonId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([salespersonId, day])
+  @@index([day])
+  @@index([salespersonId])
+}
+
 model StockRequestItem {
   id String @id @default(cuid())
 
@@ -542,6 +632,14 @@ model StockRequestItem {
   // What the reviewer agreed to send: 0..quantity. Null until the request is
   // approved. The transfer ships this amount, not `quantity`.
   approvedQuantity Int?
+  /// A salesperson's issue: when they received this line. Lines are received
+  /// as they are approved, so one approved early can be sold while the rest
+  /// of the request is still being decided.
+  receivedAt DateTime?
+  /// SIM cards handed to a salesperson: the ICCID range given, first and
+  /// last. They sell from it without typing each card's number.
+  iccidFrom String?
+  iccidTo   String?
 
   request StockRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
@@ -555,6 +653,10 @@ model StockRequestItem {
 
 model StockTransfer {
   id String @id @default(cuid())
+
+  /// Sent by the Owner unasked (the "Send to a branch" page), not a
+  /// branch-to-branch transfer.
+  directSend Boolean @default(false)
 
   requestId String? @unique
 
@@ -579,7 +681,10 @@ model StockTransfer {
   shippedAt  DateTime?
   receivedAt DateTime?
 
-  request StockRequest? @relation(fields: [requestId], references: [id])
+  request StockRequest? @relation("TransferForRequest", fields: [requestId], references: [id])
+
+  /// Every request whose goods are in this shipment.
+  shippedRequests StockRequest[] @relation("ShipmentRequests")
 
   fromLocation StockLocation @relation("TransferFromLocation", fields: [fromLocationId], references: [id])
 
@@ -632,6 +737,48 @@ model Bank {
 enum PaymentMethod {
   CASH
   TRANSFER
+  /// Part cash, part bank transfer: cashReceived and transferReceived both set.
+  MIXED
+}
+
+/// A SIM transfer done as part of a sale: a number moved from its owner to a
+/// new one, at the Owner's fixed price. A service, not stock.
+model SaleSimTransfer {
+  id String @id @default(cuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  /// How many transfers; the details live in Ethio telecom's own system.
+  quantity    Int     @default(1)
+  fromName    String?
+  phoneNumber String?
+  toName      String?
+  /// The price of one transfer when it was sold.
+  price       Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId])
+}
+
+/// A bill the customer paid through the sale (WiFi, electricity, water...):
+/// money taken, like a SIM transfer, and part of the sale's total.
+model SaleBillPayment {
+  id String @id @default(cuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  /// WIFI, ELECTRICITY, WATER, or whatever the seller typed for other bills.
+  billType String
+  /// The customer's account or bill number, when given.
+  account  String?
+  amount   Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId])
 }
 
 model Sale {
@@ -651,8 +798,25 @@ model Sale {
   /// Cash or bank transfer. Transfer money is in transferReceived, never in
   /// cashReceived, so it does not count as cash the seller holds.
   paymentMethod    PaymentMethod @default(CASH)
+  /// A salesperson edits their own sale on its day; after that only once
+  /// the Owner allows it, until this moment.
+  editAllowedUntil DateTime?
+  /// When it was last corrected, so a changed sale can be told apart.
+  editedAt         DateTime?
+  /// The salesperson asked the Owner to let them correct it (a past day).
+  editRequestedAt  DateTime?
+
   bankName         String?
   transferReceived Decimal       @default(0) @db.Decimal(12, 2)
+
+  /// How the salesperson says it was really paid (a mistyped transfer
+  /// amount), waiting for the Owner. Applied when approved, then cleared.
+  payFixRequestedAt DateTime?
+  payFixMethod      PaymentMethod?
+  payFixCash        Decimal?       @db.Decimal(12, 2)
+  payFixTransfer    Decimal?       @db.Decimal(12, 2)
+  payFixBank        String?
+  payFixNote        String?
 
   approvedById String?
 
@@ -670,11 +834,14 @@ model Sale {
 
   cashReport CashReport? @relation(fields: [cashReportId], references: [id])
 
+  simTransfers SaleSimTransfer[]
+  billPayments SaleBillPayment[]
   items SaleItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([locationId, saleDate])
   @@index([salespersonId])
   @@index([saleDate])
   @@index([status])
@@ -691,6 +858,9 @@ model SaleItem {
 
   unitPrice Decimal @db.Decimal(12, 2)
   lineTotal Decimal @db.Decimal(12, 2)
+  /// The product's buying price when it was sold, so changing it later does
+  /// not rewrite past profit. Empty for sales made before it was entered.
+  unitCost  Decimal? @db.Decimal(12, 2)
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
@@ -771,6 +941,10 @@ model BankReceipt {
   receiptDate DateTime
 
   status ReceiptStatus @default(PENDING)
+
+  /// The Owner reopens a checked receipt for 24 hours when asked.
+  editAllowedUntil DateTime?
+  editRequestedAt  DateTime?
 
   notes String?
 
@@ -1072,6 +1246,8 @@ model AppSetting {
   /// zero is allowed — a branch that does not charge still records the counts.
   nationalIdOriginalRate Decimal @default(5) @db.Decimal(12, 2)
   nationalIdCopyRate     Decimal @default(5) @db.Decimal(12, 2)
+  /// The fixed price of a SIM transfer (moving a number to a new owner).
+  simTransferPrice       Decimal @default(0) @db.Decimal(12, 2)
 
   /// When a salesperson is running low on what they took out, per kind of
   /// goods. Set per category because the numbers are not comparable: five
@@ -1120,12 +1296,17 @@ model PushSubscription {
   @@index([userId])
 }
 
-/// Birr the Owner loads into the main Ibid (digital airtime) balance.
+/// Birr the Owner loads into one branch's EVD (digital airtime) balance.
 model IbidLoad {
   id String @id @default(cuid())
 
   amount Decimal @db.Decimal(14, 2)
   note   String?
+
+  /// The branch whose own EVD balance the money went into: each branch keeps
+  /// its own. Null only for loads made before that.
+  locationId String?
+  location   StockLocation? @relation(fields: [locationId], references: [id])
 
   createdById String
   createdBy   User   @relation("IbidLoads", fields: [createdById], references: [id])
@@ -1133,6 +1314,7 @@ model IbidLoad {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([locationId])
 }
 
 /// Ibid cards a branch printed: one value, a birr amount, taken off the main
@@ -1147,6 +1329,12 @@ model IbidPrint {
   amount       Decimal @db.Decimal(14, 2)
   cards        Int
   note         String?
+
+  /// The airtime product the printed cards became, and where they were put:
+  /// the branch's shelf, or the main store in the branch's share when the
+  /// Owner printed. Null on prints made before cards became stock.
+  productId   String?
+  stockedAtId String?
 
   printedById String
   printedBy   User   @relation("IbidPrints", fields: [printedById], references: [id])
@@ -1190,7 +1378,11 @@ model PayrollPayment {
   commission Decimal @db.Decimal(12, 2)
   bonus      Decimal @default(0) @db.Decimal(12, 2)
   deduction  Decimal @default(0) @db.Decimal(12, 2)
+  /// Never below 0: deduction the pay could not cover goes to carriedOver.
   net        Decimal @db.Decimal(12, 2)
+  /// Deduction left over when it was more than the pay; it is added to the
+  /// next salary's deduction.
+  carriedOver Decimal @default(0) @db.Decimal(12, 2)
   note       String?
 
   paidById String
@@ -1244,15 +1436,27 @@ model CommissionLine {
   percent   Decimal? @db.Decimal(6, 2)
   amount    Decimal  @db.Decimal(12, 2)
 
+  /// The days whose sales this line paid for, chosen by the Owner:
+  /// [periodStart, periodEnd), whole days. Another commission for the same
+  /// person and item cannot cover any of them, so no sale is paid twice.
+  /// Null on lines saved before this was kept.
+  periodStart DateTime?
+  periodEnd   DateTime?
+
   @@index([paymentId])
 }
 
-/// Money the Owner loads into the main Telebirr balance.
+/// Money the Owner loads into one branch's Telebirr balance.
 model TelebirrLoad {
   id String @id @default(cuid())
 
   amount Decimal @db.Decimal(14, 2)
   note   String?
+
+  /// The branch whose own Telebirr account the money went into: each branch
+  /// keeps its own balance. Null only for loads made before that.
+  locationId String?
+  location   StockLocation? @relation(fields: [locationId], references: [id])
 
   createdById String
   createdBy   User   @relation(fields: [createdById], references: [id])
@@ -1260,6 +1464,7 @@ model TelebirrLoad {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([locationId])
 }
 
 /// Telebirr money a seller spent: CASH_IN (customer paid cash, got Telebirr
@@ -1269,6 +1474,12 @@ model TelebirrTransaction {
 
   kind   String
   amount Decimal @db.Decimal(14, 2)
+
+  /// How the customer paid: CASH, TRANSFER or MIXED. transferAmount is the
+  /// part sent to the bank; the rest was cash.
+  paymentMethod  String  @default("CASH")
+  transferAmount Decimal @default(0) @db.Decimal(14, 2)
+  bankName       String?
 
   locationId String
   location   StockLocation @relation(fields: [locationId], references: [id])
@@ -1321,9 +1532,15 @@ model Expense {
   recordedById String
   recordedBy   User   @relation(fields: [recordedById], references: [id])
 
+  /// Whose cash paid it: the salesperson (or supervisor) whose cash on hand it
+  /// comes out of. Null on expenses recorded before this was kept.
+  spentById String?
+  spentBy   User?   @relation("ExpensesSpent", fields: [spentById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([locationId])
+  @@index([spentById])
   @@index([expenseDate])
 }
 
@@ -1363,6 +1580,18 @@ model NationalIdRequest {
   @@index([status])
 }
 
+/// A branch's own National ID prices. A branch without a row charges the
+/// Owner's default prices in AppSetting.
+model NationalIdBranchPrice {
+  locationId String        @id
+  location   StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  originalRate Decimal @db.Decimal(12, 2)
+  copyRate     Decimal @db.Decimal(12, 2)
+
+  updatedAt DateTime @updatedAt
+}
+
 /// One customer waiting for a National ID print (ORIGINAL) or copy (COPY), at
 /// the price in force when registered.
 model NationalIdOrder {
@@ -1372,6 +1601,12 @@ model NationalIdOrder {
   fullName String
   price    Decimal @db.Decimal(12, 2)
   status   String  @default("REGISTERED")
+
+  /// How the customer paid: CASH, TRANSFER or MIXED. transferAmount is the
+  /// part sent to the bank; the rest was cash.
+  paymentMethod  String  @default("CASH")
+  transferAmount Decimal @default(0) @db.Decimal(14, 2)
+  bankName       String?
 
   locationId String
   location   StockLocation @relation(fields: [locationId], references: [id])
@@ -1388,4 +1623,80 @@ model NationalIdOrder {
   @@index([locationId])
   @@index([status])
   @@index([requestId])
+}
+
+/// Money taken off someone's pay for one day: goods short or lost. Each
+/// supervisor and salesperson records their own; the Owner may for anyone.
+/// Pay Salary fills its deduction with the month's total.
+model Deduction {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("DeductionsOwed", fields: [userId], references: [id])
+
+  /// The day it happened: "2026-10-02".
+  day   String
+  total Decimal @db.Decimal(12, 2)
+  note  String?
+
+  lines DeductionLine[]
+
+  recordedById String
+  recordedBy   User   @relation("DeductionsRecorded", fields: [recordedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([day])
+}
+
+/// One item in a deduction: which product, how many, and what it costs.
+model DeductionLine {
+  id String @id @default(cuid())
+
+  deductionId String
+  deduction   Deduction @relation(fields: [deductionId], references: [id], onDelete: Cascade)
+
+  /// The product, while it exists; the label keeps its name either way.
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  label     String
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 2)
+  amount    Decimal @db.Decimal(12, 2)
+
+  @@index([deductionId])
+  @@index([productId])
+}
+
+/// The Owner lets a salesperson correct one past day (their sales, Telebirr
+/// and National ID entries) until `until`.
+/// A salesperson's day opened for correcting how its sales were paid (a
+/// mistyped transfer amount): asked for, then allowed by the Owner for 24 h.
+model PaymentEditGrant {
+  id          String    @id @default(cuid())
+  userId      String
+  /// The day being corrected, YYYY-MM-DD.
+  day         String
+  requestedAt DateTime?
+  until       DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+}
+
+model EditGrant {
+  id        String   @id @default(cuid())
+  userId    String
+  /// The day being corrected, YYYY-MM-DD.
+  day       String
+  until     DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
 }

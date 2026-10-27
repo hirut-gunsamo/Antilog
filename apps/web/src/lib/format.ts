@@ -1,4 +1,5 @@
 import type { TranslationKey } from './i18n'
+import { BUSINESS_TZ } from './tz'
 
 // The currency code the whole app prints.
 //
@@ -53,7 +54,7 @@ export function shortDate(value: string) {
 
   if (Number.isNaN(date.getTime())) return value
 
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BUSINESS_TZ })
 }
 
 export const CATEGORY_KEY: Record<string, TranslationKey> = {

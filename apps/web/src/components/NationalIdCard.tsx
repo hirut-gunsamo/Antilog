@@ -111,10 +111,6 @@ export function NationalIdCard() {
     subtitle: t('nid.dashNote'),
     action: (
       <div className={styles.actions}>
-        <Link className={styles.add} to="/national-id?new=1">
-          <Glyph name="plus" size={15} />
-          <span>{t('nid.addRecord')}</span>
-        </Link>
         <Link className={styles.viewAll} to="/national-id">
           {t('common.viewAll')}
         </Link>
@@ -215,9 +211,8 @@ export function NationalIdCard() {
               <strong>{t('nid.emptyTitle')}</strong>
               <p>{t('nid.emptyNote')}</p>
             </div>
-            <Link className={styles.emptyAction} to="/national-id?new=1">
-              <Glyph name="plus" size={15} />
-              {t('nid.addRecord')}
+            <Link className={styles.emptyAction} to="/national-id/original">
+              {t('nido.titleOriginal')}
             </Link>
           </div>
         ) : (

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { businessDay } from '../../lib/tz'
 
 import { api } from '../../lib/api'
 import { currency } from '../../lib/format'
@@ -106,10 +107,16 @@ export function SalaryDialog({
   )
 }
 
+function today() {
+  const now = new Date()
+  return businessDay(now)
+}
+
 /**
- * Pay salary: choose the employee, then salary, commission, bonus and
- * deduction. Commission starts at what their sales earned this month and can
- * be changed. The same form edits a payment already recorded.
+ * Pay salary: choose the branch, then one of its people (the supervisor
+ * first), the day it was paid, then salary, commission, bonus and deduction.
+ * Commission starts at what their sales earned this month and can be changed.
+ * The same form edits a payment already recorded.
  */
 export function PayDialog({
   rows,
@@ -129,9 +136,30 @@ export function PayDialog({
   useEscape(onClose)
 
   // Only people not yet paid this month can be picked for a new payment.
-  const choices = editing ? [editing] : rows.filter((row) => !row.payment)
+  const unpaid = editing ? [editing] : rows.filter((row) => !row.payment)
+
+  // Branch first; the people list is then that branch's, supervisor first.
+  const NO_BRANCH = '__none__'
+  const branchOf = (row: Row) => row.employee.branch?.id ?? NO_BRANCH
+  const branchOptions = [
+    ...new Map(
+      unpaid.map((row) => [branchOf(row), row.employee.branch?.name ?? t('dlg.noBranch')] as const),
+    ),
+  ].sort((a, b) => a[1].localeCompare(b[1]))
+  const [branchId, setBranchId] = useState(
+    editing ? branchOf(editing) : (branchOptions[0]?.[0] ?? ''),
+  )
+  const choices = unpaid
+    .filter((row) => branchOf(row) === branchId)
+    .sort(
+      (a, b) =>
+        Number(b.employee.role === 'SUPERVISOR') - Number(a.employee.role === 'SUPERVISOR') ||
+        a.employee.name.localeCompare(b.employee.name),
+    )
+
   const [userId, setUserId] = useState(editing?.employee.id ?? choices[0]?.employee.id ?? '')
   const row = choices.find((entry) => entry.employee.id === userId) ?? null
+  const [paidOn, setPaidOn] = useState(editing?.payment?.paidAt.slice(0, 10) ?? today())
 
   const start = (value: number | undefined) => (value ? String(value) : '')
   const [salary, setSalary] = useState(
@@ -139,22 +167,46 @@ export function PayDialog({
   )
   const [commission, setCommission] = useState(start(row?.commission))
   const [bonus, setBonus] = useState(start(editing?.payment?.bonus))
-  const [deduction, setDeduction] = useState(start(editing?.payment?.deduction))
+  // Filled from the Deductions page: this month's total for the person.
+  const [deduction, setDeduction] = useState(
+    editing ? String(editing.payment?.deduction ?? 0) : String(row?.deducted ?? 0),
+  )
   const [note, setNote] = useState(editing?.payment?.note ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function pick(id: string) {
+  function pick(id: string, list = choices) {
     setUserId(id)
-    const next = choices.find((entry) => entry.employee.id === id)
+    const next = list.find((entry) => entry.employee.id === id)
     setSalary(start(Number(next?.employee.monthlySalary ?? 0)))
     setCommission(start(next?.commission))
+    setDeduction(String(next?.deducted ?? 0))
+  }
+
+  // A new branch: start on its supervisor, or its first person.
+  function pickBranch(id: string) {
+    setBranchId(id)
+    const list = unpaid
+      .filter((entry) => branchOf(entry) === id)
+      .sort(
+        (a, b) =>
+          Number(b.employee.role === 'SUPERVISOR') - Number(a.employee.role === 'SUPERVISOR') ||
+          a.employee.name.localeCompare(b.employee.name),
+      )
+    pick(list[0]?.employee.id ?? '', list)
   }
 
   const n = (value: string) => Number(value) || 0
-  const net = n(salary) + n(commission) + n(bonus) - n(deduction)
+  const left = n(salary) + n(commission) + n(bonus) - n(deduction)
+  // Pay never goes below 0; what the deduction exceeds it by comes off the
+  // next month's salary.
+  const net = Math.max(0, left)
+  const carried = Math.max(0, -left)
   const valid =
-    row != null && [salary, commission, bonus, deduction].every((value) => n(value) >= 0) && net >= 0
+    row != null &&
+    paidOn !== '' &&
+    deduction.trim() !== '' &&
+    [salary, commission, bonus, deduction].every((value) => n(value) >= 0)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -167,6 +219,7 @@ export function PayDialog({
       commission: n(commission),
       bonus: n(bonus),
       deduction: n(deduction),
+      paidOn,
       ...(note.trim() ? { note: note.trim() } : {}),
     }
 
@@ -187,11 +240,17 @@ export function PayDialog({
     }
   }
 
-  const money = (label: string, value: string, set: (value: string) => void, optional = false) => (
+  const money = (
+    label: string,
+    value: string,
+    set: (value: string) => void,
+    optional = false,
+    note?: string,
+  ) => (
     <label className={styles.field}>
       <span>
         {label}
-        <em>{t(optional ? 'prod.optional' : 'common.required')}</em>
+        <em>{note ?? t(optional ? 'prod.optional' : 'common.required')}</em>
       </span>
       <input
         type="number"
@@ -227,6 +286,20 @@ export function PayDialog({
         <form className={styles.body} onSubmit={handleSubmit}>
           <label className={styles.field}>
             <span>
+              {t('common.branch')}<em>{t('common.required')}</em>
+            </span>
+            <select value={branchId} onChange={(event) => pickBranch(event.target.value)} disabled={Boolean(editing)}>
+              {branchOptions.length === 0 ? <option value="">{t('pay.allPaid')}</option> : null}
+              {branchOptions.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className={styles.field}>
+            <span>
               {t('pay.employee')}<em>{t('common.required')}</em>
             </span>
             <select value={userId} onChange={(event) => pick(event.target.value)} disabled={Boolean(editing)}>
@@ -234,16 +307,30 @@ export function PayDialog({
               {choices.map((entry) => (
                 <option key={entry.employee.id} value={entry.employee.id}>
                   {entry.employee.name}
-                  {entry.employee.branch ? ` · ${entry.employee.branch.name}` : ''}
                 </option>
               ))}
             </select>
           </label>
 
+          <label className={styles.field}>
+            <span>
+              {t('pay.paidOn')}<em>{t('common.required')}</em>
+            </span>
+            <input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
+          </label>
+
           {money(t('pay.salary'), salary, setSalary)}
           {money(t('pay.commission'), commission, setCommission, true)}
           {money(t('pay.bonus'), bonus, setBonus, true)}
-          {money(t('pay.deduction'), deduction, setDeduction, true)}
+          {money(
+            t('pay.deduction'),
+            deduction,
+            setDeduction,
+            false,
+            row && !editing && row.carriedIn > 0
+              ? t('pay.deductionCarried', { amount: currency(row.carriedIn) })
+              : t('pay.deductionNote'),
+          )}
 
           <label className={styles.field}>
             <span>
@@ -259,9 +346,17 @@ export function PayDialog({
                 <strong>{currency(net)}</strong>
               </dd>
             </div>
+            {carried > 0 ? (
+              <div>
+                <dt>{t('pay.carriedNext')}</dt>
+                <dd className="tabular">
+                  <strong>{currency(carried)}</strong>
+                </dd>
+              </div>
+            ) : null}
           </dl>
 
-          {net < 0 ? <p className={styles.blocked}>{t('pay.negative')}</p> : null}
+          {carried > 0 ? <p className={styles.hint}>{t('pay.carriedNote', { amount: currency(carried) })}</p> : null}
           {error ? <p className={styles.error}>{error}</p> : null}
 
           <div className={styles.actions}>

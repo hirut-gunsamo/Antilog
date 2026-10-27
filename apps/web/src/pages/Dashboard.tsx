@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { businessDay } from '../lib/tz'
 import { Link } from 'react-router-dom'
 
 import { useAuth } from '../auth/context'
@@ -9,6 +10,8 @@ import { StatCard } from '../components/StatCard'
 import { SalesDashboard } from '../components/dashboard/SalesDashboard'
 import { SupervisorDashboard } from '../components/dashboard/SupervisorDashboard'
 import { BranchPerformance } from '../components/BranchPerformance'
+import { SendToBranchDialog } from '../components/transfers/SendToBranchDialog'
+import base from './Products.module.css'
 import { icons } from '../components/icons'
 import { api, downloadCsv, OfflineError } from '../lib/api'
 import { useT, type TranslationKey } from '../lib/i18n'
@@ -36,7 +39,7 @@ const BRANCH_RANGE_SUBTITLE: Record<RangeValue, TranslationKey> = {
 }
 
 function isoDate(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 function ActivityIcon({ name }: { name: keyof typeof icons }) {
@@ -60,9 +63,7 @@ function ActivityIcon({ name }: { name: keyof typeof icons }) {
 }
 
 const QUICK_ACTIONS = [
-  { to: '/sales', label: 'New Sale', icon: 'cart', tone: 'blue' },
   { to: '/requests', label: 'Stock Request', icon: 'clipboard', tone: 'violet' },
-  { to: '/receipts', label: 'Add Receipt', icon: 'receipt', tone: 'green' },
   { to: '/inventory', label: 'View Stock', icon: 'box', tone: 'amber' },
   { to: '/reports', label: 'Reports', icon: 'chart', tone: 'blue' },
   { to: '/sync', label: 'Sync', icon: 'sync', tone: 'grey' },
@@ -77,6 +78,7 @@ export default function Dashboard() {
   const [downloading, setDownloading] = useState<string | null>(null)
 
   const { toasts, push, dismiss } = useToasts()
+  const [sending, setSending] = useState(false)
   const t = useT()
   // Refetch when the connection returns, so a dashboard opened offline fills
   // itself in instead of waiting for a manual reload.
@@ -197,6 +199,34 @@ export default function Dashboard() {
         <p>{t('dash.todayNote')}</p>
       </div>
 
+      {/* The Owner sends stock to a branch without waiting for a request;
+          the branch's supervisor clicks Received when it arrives. */}
+      <Card
+        title={t('send.title')}
+        subtitle={t('send.note')}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link to="/send" className={base.secondary}>
+              {t('send.seeSent')}
+            </Link>
+            <button type="button" className={base.primary} onClick={() => setSending(true)}>
+              {t('send.button')}
+            </button>
+          </div>
+        }
+      >
+        {null}
+      </Card>
+      {sending ? (
+        <SendToBranchDialog
+          onClose={() => setSending(false)}
+          onDone={(message) => {
+            setSending(false)
+            push('success', message)
+          }}
+        />
+      ) : null}
+
       <div className={styles.tiles}>
         <StatCard
           label={t("dash.simCards")}
@@ -228,7 +258,7 @@ export default function Dashboard() {
           changePct={data.tiles.cashReceived.changePct}
           icon="cash"
           tone="emerald"
-          to="/sales"
+          to="/reports"
         />
       </div>
 

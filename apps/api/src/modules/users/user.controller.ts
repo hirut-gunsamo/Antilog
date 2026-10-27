@@ -81,6 +81,11 @@ function handleUserError(
         message: "The Owner cannot be assigned to a branch",
       });
 
+    case "MAIN_STORE_NO_SELLERS":
+      return reply.status(400).send({
+        message: "The main store only holds stock, so salespeople cannot work there. Choose a selling branch.",
+      });
+
     case "CANNOT_DELETE_OWNER":
       return reply.status(403).send({
         message: "The Owner account cannot be deleted",

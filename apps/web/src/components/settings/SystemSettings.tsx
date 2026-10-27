@@ -9,6 +9,8 @@ import { Card } from '../Card'
 import styles from '../../pages/Settings.module.css'
 
 const CONFIRM_PHRASE = 'REPLACE ALL DATA'
+// The API checks for this exact word too.
+const ERASE_PHRASE = 'ERASE'
 
 /**
  * Backup, restore and reset — the three Owner-only operations that act on the
@@ -26,6 +28,8 @@ export function SystemSettings({
 
   const [downloading, setDownloading] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [eraseConfirm, setEraseConfirm] = useState('')
+  const [erasing, setErasing] = useState(false)
 
   const [file, setFile] = useState<File | null>(null)
   const [confirm, setConfirm] = useState('')
@@ -96,6 +100,24 @@ export function SystemSettings({
     }
   }
 
+  async function eraseAll() {
+    if (eraseConfirm !== ERASE_PHRASE || erasing) return
+    setErasing(true)
+
+    try {
+      await api('/api/settings/erase-all', {
+        method: 'POST',
+        body: { confirm: ERASE_PHRASE },
+      })
+      setEraseConfirm('')
+      onSaved(t('sys.erased'))
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : t('sys.eraseFailed'))
+    } finally {
+      setErasing(false)
+    }
+  }
+
   async function reset() {
     setResetting(true)
 
@@ -130,6 +152,39 @@ export function SystemSettings({
             disabled={downloading}
           >
             {downloading ? t('sys.preparing') : t('sys.downloadBackup')}
+          </button>
+        </div>
+      </div>
+
+      <div className={styles.group}>
+        <span className={styles.groupLabel}>{t('sys.erase')}</span>
+        <p className={styles.danger}>
+          <strong>{t('sys.restoreWarnStrong')}</strong> {t('sys.eraseWarn')}
+        </p>
+        <p className={styles.hint}>{t('sys.eraseKeeps')}</p>
+
+        <label className={styles.field}>
+          <span>
+            {t('sys.typeBefore')}
+            <strong>{ERASE_PHRASE}</strong>
+            {t('sys.typeAfter')}
+          </span>
+          <input
+            value={eraseConfirm}
+            onChange={(event) => setEraseConfirm(event.target.value)}
+            placeholder={ERASE_PHRASE}
+            spellCheck={false}
+          />
+        </label>
+
+        <div className={styles.formActions}>
+          <button
+            type="button"
+            className={styles.dangerButton}
+            onClick={() => void eraseAll()}
+            disabled={eraseConfirm !== ERASE_PHRASE || erasing}
+          >
+            {erasing ? t('sys.erasing') : t('sys.eraseButton')}
           </button>
         </div>
       </div>

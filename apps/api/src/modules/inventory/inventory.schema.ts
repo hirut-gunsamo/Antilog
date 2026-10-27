@@ -4,9 +4,13 @@ import { z } from "zod";
 // when a unit is sold, not when it is delivered.
 export const stockInSchema = z.object({
   productId: z.string().min(1),
-  locationId: z.string().min(1),
+  // Where it arrives; defaults to the main store when it is for a branch.
+  locationId: z.string().min(1).optional(),
+  // The branch the Owner bought it for: it joins that branch's share.
+  forBranchId: z.string().min(1).optional(),
 
-  quantity: z.coerce.number().int().positive(),
+  // Up to a billion at once: a big purchase fits, a mistyped extra zero is refused.
+  quantity: z.coerce.number().int().positive().max(1_000_000_000),
 
   note: z.string().max(500).optional(),
 });
@@ -53,6 +57,13 @@ export const removeBalanceSchema = z.object({
 export type AdjustBalanceInput = z.infer<typeof adjustBalanceSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type RemoveBalanceInput = z.infer<typeof removeBalanceSchema>;
+// Setting a branch's share of the Owner's stock to its true figure.
+export const branchStockSchema = z.object({
+  branchId: z.string().min(1),
+  productId: z.string().min(1),
+  quantity: z.coerce.number().int().min(0).max(1_000_000_000),
+});
+
 export type StockInInput = z.infer<typeof stockInSchema>;
 export type InventoryQuery = z.infer<typeof inventoryQuerySchema>;
 export type UnitsQuery = z.infer<typeof unitsQuerySchema>;

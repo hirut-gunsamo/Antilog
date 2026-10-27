@@ -204,3 +204,16 @@ a {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* Number boxes take typed numbers only: no up/down arrows to click by
+   mistake (people use a mouse), in every browser. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "Sale" ADD COLUMN "editRequestedAt" TIMESTAMP(3);

@@ -11,9 +11,13 @@ import { prisma } from "../../plugins/prisma.js";
  * and price. The three built-ins keep their own rules and cannot be removed.
  */
 
-const BUILT_IN = new Set(["cat_sim", "cat_phone", "cat_airtime"]);
-
 const nameSchema = z.object({ name: z.string().trim().min(2).max(60) });
+
+// How the category's goods are counted: SIM cards by ICCID, phones by IMEI,
+// airtime by value, anything else by quantity and price.
+const createSchema = nameSchema.extend({
+  kind: z.enum(["SIM_CARD", "PHONE", "AIRTIME_VOUCHER", "OTHER"]).optional().default("OTHER"),
+});
 
 const select = { id: true, name: true, kind: true, isActive: true } as const;
 
@@ -47,7 +51,7 @@ export async function categoryRoutes(app: FastifyInstance) {
   });
 
   app.post("/", { preHandler: [authorize(UserRole.OWNER)] }, async (request, reply) => {
-    const result = nameSchema.safeParse(request.body);
+    const result = createSchema.safeParse(request.body);
     if (!result.success) return reply.status(400).send({ message: "Enter a name of at least 2 letters" });
 
     const existing = await prisma.category.findUnique({ where: { name: result.data.name } });
@@ -57,14 +61,14 @@ export async function categoryRoutes(app: FastifyInstance) {
       if (existing.isActive) return clash(reply);
       const category = await prisma.category.update({
         where: { id: existing.id },
-        data: { isActive: true },
+        data: { isActive: true, kind: result.data.kind },
         select,
       });
       return reply.status(201).send({ category });
     }
 
     const category = await prisma.category.create({
-      data: { name: result.data.name, kind: "OTHER" },
+      data: { name: result.data.name, kind: result.data.kind },
       select,
     });
 
@@ -91,17 +95,13 @@ export async function categoryRoutes(app: FastifyInstance) {
     },
   );
 
-  // Only an added category with nothing live in it can go. It is retired, so
-  // old products and sales keep their category name.
+  // Only a category with nothing live in it can go. It is retired, so old
+  // products and sales keep their category name.
   app.delete<{ Params: { id: string } }>(
     "/:id",
     { preHandler: [authorize(UserRole.OWNER)] },
     async (request, reply) => {
       const id = request.params.id;
-
-      if (BUILT_IN.has(id)) {
-        return reply.status(400).send({ message: "SIM Cards, Phones and Airtime cannot be deleted" });
-      }
 
       const [types, products] = await Promise.all([
         prisma.productType.count({ where: { categoryId: id, isActive: true } }),

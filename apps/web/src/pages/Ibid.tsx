@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
+import { businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
@@ -10,13 +13,14 @@ import { count, currency, shortDate } from '../lib/format'
 import { cartaText } from '../lib/ibid'
 import { useT } from '../lib/i18n'
 import { useToasts } from '../lib/toasts'
+import { EditLoadDialog } from '../components/ibid/EditLoadDialog'
 import type { IbidSummary } from '../lib/types'
 import base from './Products.module.css'
 import panel from '../components/inventory/Panel.module.css'
 import styles from './Ibid.module.css'
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 /**
@@ -34,8 +38,8 @@ export default function Ibid() {
   const branchList = useBranchList()
 
   const now = new Date()
-  const [from, setFrom] = useState(isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
-  const [to, setTo] = useState(isoDay(now))
+  const [from, setFrom] = useSavedState('ibid:from', isoDay(new Date(now.getFullYear(), now.getMonth(), 1)))
+  const [to, setTo] = useSavedState('ibid:to', isoDay(now))
   const [branch, setBranch] = useState('')
 
   const [data, setData] = useState<IbidSummary | null>(null)
@@ -63,6 +67,9 @@ export default function Ibid() {
     return () => controller.abort()
   }, [from, to, branch, isOwner, reloadKey])
 
+  // A load being corrected.
+  const [editingLoad, setEditingLoad] = useState<IbidSummary['entries'][number] | null>(null)
+  const [editingPrint, setEditingPrint] = useState<IbidSummary['entries'][number] | null>(null)
   const reload = () => setReloadKey((n) => n + 1)
   const values = data?.values ?? [10, 15, 25, 50, 100]
 
@@ -122,7 +129,7 @@ export default function Ibid() {
       <div className={styles.tiles}>
         <div className={styles.main}>
           <strong className="tabular">{data ? currency(Number(data.balance)) : '—'}</strong>
-          <span>{t('ibid.balance')}</span>
+          <span>{t(isOwner && !branch ? 'ibid.balanceAll' : 'ibid.balance')}</span>
         </div>
         {isOwner ? (
           <button type="button" className={styles.tileButton} onClick={() => setViewingLoads(true)}>
@@ -139,6 +146,33 @@ export default function Ibid() {
           <span>{t('ibid.printedToday')}</span>
         </div>
       </div>
+
+      {/* The Owner's view of every branch's own EVD balance. */}
+      {isOwner && data ? (
+        <Card>
+          <h2 className={styles.sectionTitle}>{t('ibid.branchBalances')}</h2>
+          <div className={base.scroll}>
+            <table className={base.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t('common.branch')}</th>
+                  <th scope="col">{t('ibid.balance')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.balances.map((row) => (
+                  <tr key={row.id}>
+                    <td data-label={t('common.branch')} className={base.strong}>{row.name}</td>
+                    <td data-label={t('ibid.balance')} className={`${base.strong} tabular`}>
+                      {currency(row.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className={styles.filters}>
@@ -178,7 +212,7 @@ export default function Ibid() {
                   <th scope="col">{t('common.branch')}</th>
                   {values.map((value) => (
                     <th scope="col" key={value}>
-                      Ibid {value}
+                      EVD {value}
                     </th>
                   ))}
                   <th scope="col">{t('ibid.total')}</th>
@@ -193,7 +227,7 @@ export default function Ibid() {
                     {values.map((value) => {
                       const cell = row.values[value]
                       return (
-                        <td key={value} data-label={`Ibid ${value}`} className="tabular">
+                        <td key={value} data-label={`EVD ${value}`} className="tabular">
                           {cell ? currency(cell.amount) : '—'}
                           {cell ? (
                             <em className={base.sub}>{cartaText(t, cell.cards)}</em>
@@ -230,7 +264,7 @@ export default function Ibid() {
                   <th scope="col">{t('ibid.amountBirr')}</th>
                   <th scope="col">{t('ibid.cards')}</th>
                   <th scope="col">{t('ibid.by')}</th>
-                  {isOwner ? <th scope="col" /> : null}
+                  <th scope="col" />
                 </tr>
               </thead>
               <tbody>
@@ -244,7 +278,7 @@ export default function Ibid() {
                       {entry.note ? <em className={base.sub}>{entry.note}</em> : null}
                     </td>
                     <td data-label={t('common.branch')}>{entry.branch?.name ?? '—'}</td>
-                    <td data-label={t('ibid.value')}>{entry.denomination ? `Ibid ${entry.denomination}` : '—'}</td>
+                    <td data-label={t('ibid.value')}>{entry.denomination ? `EVD ${entry.denomination}` : '—'}</td>
                     <td data-label={t('ibid.amountBirr')} className={`${base.strong} tabular`}>
                       {entry.kind === 'LOAD' ? '+' : '−'}
                       {currency(Number(entry.amount))}
@@ -253,13 +287,27 @@ export default function Ibid() {
                       {entry.cards != null ? `${cartaText(t, entry.cards)} (${count(entry.cards)})` : '—'}
                     </td>
                     <td data-label={t('ibid.by')}>{entry.by.name}</td>
-                    {isOwner ? (
-                      <td>
-                        <button type="button" className={styles.remove} onClick={() => void remove(entry)}>
+                    <td>
+                      {/* A print can be corrected by whoever made it on the
+                          day, and by the Owner any time. */}
+                      {entry.kind === 'PRINT' &&
+                      (isOwner ||
+                        (entry.by.id === user?.id && new Date(entry.at).toDateString() === new Date().toDateString())) ? (
+                        <button type="button" className={rowStyles.action} onClick={() => setEditingPrint(entry)}>
+                          {t('load.edit')}
+                        </button>
+                      ) : null}
+                      {isOwner && entry.kind === 'LOAD' ? (
+                        <button type="button" className={rowStyles.action} onClick={() => setEditingLoad(entry)}>
+                          {t('load.edit')}
+                        </button>
+                      ) : null}
+                      {isOwner ? (
+                        <button type="button" className={rowStyles.danger} onClick={() => void remove(entry)}>
                           {t('prod.delete')}
                         </button>
-                      </td>
-                    ) : null}
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -315,11 +363,17 @@ export default function Ibid() {
                           +{currency(Number(entry.amount))}
                         </span>
                         <span className={panel.moveWhere}>
+                          {entry.branch ? `${entry.branch.name} · ` : ''}
                           {entry.by.name}
                           {entry.note ? ` · ${entry.note}` : ''}
                         </span>
                         <span className={panel.moveWhen}>{shortDate(entry.at)}</span>
-                        <button type="button" className={styles.remove} onClick={() => void remove(entry)}>
+                        {entry.kind === 'LOAD' ? (
+                          <button type="button" className={rowStyles.action} onClick={() => setEditingLoad(entry)}>
+                            {t('load.edit')}
+                          </button>
+                        ) : null}
+                        <button type="button" className={rowStyles.danger} onClick={() => void remove(entry)}>
                           {t('prod.delete')}
                         </button>
                       </li>
@@ -333,10 +387,34 @@ export default function Ibid() {
 
       {loading ? (
         <LoadIbidDialog
+          balances={data?.balances ?? []}
+          initialBranchId={branch || undefined}
           onClose={() => setLoading(false)}
-          onDone={(amount) => {
+          onDone={(amount, branchName) => {
             setLoading(false)
-            push('success', t('ibid.loaded', { amount: currency(amount) }))
+            push('success', t('ibid.loaded', { amount: currency(amount), branch: branchName }))
+            reload()
+          }}
+        />
+      ) : null}
+
+      {editingPrint ? (
+        <PrintIbidDialog
+          values={values}
+          balance={Number(data?.balance ?? 0)}
+          balances={data?.balances ?? []}
+          editing={{
+            id: editingPrint.id,
+            denomination: editingPrint.denomination,
+            cards: editingPrint.cards,
+            amount: String(editingPrint.amount),
+            note: editingPrint.note,
+            branch: editingPrint.branch,
+          }}
+          onClose={() => setEditingPrint(null)}
+          onDone={(message) => {
+            setEditingPrint(null)
+            push('success', message)
             reload()
           }}
         />
@@ -346,10 +424,24 @@ export default function Ibid() {
         <PrintIbidDialog
           values={values}
           balance={Number(data?.balance ?? 0)}
+          balances={data?.balances ?? []}
           onClose={() => setPrinting(false)}
           onDone={(message) => {
             setPrinting(false)
             push('success', message)
+            reload()
+          }}
+        />
+      ) : null}
+
+      {editingLoad ? (
+        <EditLoadDialog
+          path="/api/ibid/loads"
+          load={editingLoad}
+          onClose={() => setEditingLoad(null)}
+          onDone={(amount) => {
+            setEditingLoad(null)
+            push('success', t('load.saved', { amount: currency(amount) }))
             reload()
           }}
         />

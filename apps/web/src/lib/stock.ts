@@ -17,3 +17,8 @@ export function stockStatus(category: string, quantity: number): StockStatus {
   if (quantity <= (LOW_STOCK_THRESHOLD[category] ?? 0)) return 'LOW_STOCK'
   return 'IN_STOCK'
 }
+
+/** Airtime is counted by the carta (20 cards): its quantities say so. */
+export function cartaSuffix(category: string | undefined) {
+  return category === 'AIRTIME_VOUCHER' ? ' carta' : ''
+}

@@ -1217,3 +1217,31 @@
     background: var(--surface-2);
   }
 }
+
+/* A request's items, one a line: name and how many. */
+.itemLines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  min-width: 170px;
+}
+
+.itemLines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.itemLines li > span:last-child {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.itemLines li[data-off] > span:first-child {
+  text-decoration: line-through;
+  color: var(--muted);
+}

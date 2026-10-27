@@ -28,6 +28,7 @@ export type NotificationKind =
   | "MY_REJECTED"
   | "MY_REQUEST_APPROVED"
   | "DELIVERIES_TO_RECEIVE"
+  | "ISSUES_TO_RECEIVE"
   | "TRANSFERS_DONE"
   | "EXPENSES_ADDED"
   | "NID_TO_FORWARD"
@@ -35,7 +36,8 @@ export type NotificationKind =
   | "NID_RETURNED"
   | "MY_REQUEST_REJECTED"
   | "LOW_STOCK"
-  | "LOW_BLANKS";
+  | "LOW_BLANKS"
+  | "EDITS_TO_ALLOW";
 
 export type Notification = {
   kind: NotificationKind;
@@ -88,8 +90,24 @@ export async function getNotifications(
   // the branch. One combined count would hide which is waiting.
   if (settings.notifyRequests && viewer.role !== "SALES") {
     const requests = await prisma.stockRequest.findMany({
-      where: { status: "PENDING", requestedToId: viewer.userId },
+      // Every supervisor of the branch sees its salespeople's requests.
+      where:
+        viewer.role === "SUPERVISOR"
+          ? {
+              status: "PENDING",
+              OR: [
+                { requestedToId: viewer.userId },
+                { requestedBy: { role: "SALES", branchId: viewer.branchId ?? "__none__" } },
+                // Another branch asking this one for stock.
+                {
+                  requestedBy: { role: "SUPERVISOR" },
+                  requestedTo: { role: "SUPERVISOR", branchId: viewer.branchId ?? "__none__" },
+                },
+              ],
+            }
+          : { status: "PENDING", requestedToId: viewer.userId },
       select: {
+        id: true,
         kind: true,
         submittedAt: true,
         requestedBy: { select: { name: true } },
@@ -114,12 +132,66 @@ export async function getNotifications(
         kind: notificationKind,
         count: waiting.length,
         tone: "action",
-        href: "/approvals",
+        // Opens the newest one's items straight away; the rest are listed.
+        href: `/approvals?request=${waiting[0].id}`,
         sample: waiting.slice(0, 3).map((r) => r.requestedBy.name),
         latest: latestOf({
           at: waiting[0].submittedAt,
           by: waiting[0].requestedBy,
         }),
+      });
+    }
+  }
+
+  // Salespeople asking to correct a past day's sale wait on the Owner.
+  if (isOwner) {
+    const asked = await prisma.sale.findMany({
+      where: {
+        editRequestedAt: { not: null },
+        OR: [{ editAllowedUntil: null }, { editAllowedUntil: { lt: new Date() } }],
+      },
+      select: { editRequestedAt: true, salesperson: { select: { name: true } } },
+      orderBy: { editRequestedAt: "desc" },
+      take: 60,
+    });
+    // Receipts their uploader asked to correct wait on the Owner too.
+    const receiptsAsked = await prisma.bankReceipt.findMany({
+      where: {
+        editRequestedAt: { not: null },
+        OR: [{ editAllowedUntil: null }, { editAllowedUntil: { lt: new Date() } }],
+      },
+      select: { editRequestedAt: true, uploadedBy: { select: { name: true } } },
+      orderBy: { editRequestedAt: "desc" },
+      take: 60,
+    });
+    // And payment corrections of a sale.
+    const payFixes = await prisma.sale.findMany({
+      where: { payFixRequestedAt: { not: null } },
+      select: { payFixRequestedAt: true, salesperson: { select: { name: true } } },
+      orderBy: { payFixRequestedAt: "desc" },
+      take: 60,
+    });
+    // And days whose payments a salesperson asked to correct.
+    const payEdits = await prisma.paymentEditGrant.findMany({
+      where: { requestedAt: { not: null } },
+      select: { requestedAt: true, user: { select: { name: true } } },
+      orderBy: { requestedAt: "desc" },
+      take: 60,
+    });
+    const waiting = [
+      ...payEdits.map((row) => ({ at: row.requestedAt!, by: row.user })),
+      ...asked.map((row) => ({ at: row.editRequestedAt!, by: row.salesperson })),
+      ...payFixes.map((row) => ({ at: row.payFixRequestedAt!, by: row.salesperson })),
+      ...receiptsAsked.map((row) => ({ at: row.editRequestedAt!, by: row.uploadedBy })),
+    ].sort((a, b) => b.at.getTime() - a.at.getTime());
+    if (waiting.length > 0) {
+      out.push({
+        kind: "EDITS_TO_ALLOW",
+        count: asked.length + receiptsAsked.length + payFixes.length + payEdits.length,
+        tone: "action",
+        href: "/reports",
+        sample: [...new Set(waiting.map((row) => row.by.name))].slice(0, 3),
+        latest: latestOf({ at: waiting[0].at, by: waiting[0].by }),
       });
     }
   }
@@ -273,6 +345,7 @@ export async function getNotifications(
     const incoming = await prisma.stockTransfer.findMany({
       where: { status: "IN_TRANSIT", toLocationId: viewer.branchId },
       select: {
+        directSend: true,
         shippedAt: true,
         driverName: true,
         fromLocation: { select: { name: true } },
@@ -286,7 +359,8 @@ export async function getNotifications(
         kind: "DELIVERIES_TO_RECEIVE",
         count: incoming.length,
         tone: "action",
-        href: "/transfers",
+        // The Owner's own sends are received on their own page.
+        href: incoming[0].directSend ? "/send" : "/transfers",
         sample: incoming
           .slice(0, 3)
           .map((row) => row.fromLocation.name + (row.driverName ? ` · ${row.driverName}` : "")),
@@ -381,7 +455,8 @@ export async function getNotifications(
     const since = options.nidSeenAt && options.nidSeenAt > floor ? options.nidSeenAt : floor;
     const back = await prisma.nationalIdRequest.findMany({
       where: {
-        status: "RETURNED",
+        // Still news to the salesperson after their supervisor marks it received.
+        status: viewer.role === "SALES" ? { in: ["RETURNED", "RECEIVED"] } : "RETURNED",
         returnedAt: { gt: since },
         ...(viewer.role === "SALES" ? { requestedById: viewer.userId } : { locationId: viewer.branchId }),
       },
@@ -428,6 +503,33 @@ export async function getNotifications(
         href: "/expenses",
         sample: added.slice(0, 3).map((row) => `${row.location.name} · ${row.reason} · ${Number(row.amount)}`),
         latest: { at: added[0].createdAt.toISOString(), by: added[0].recordedBy.name },
+      });
+    }
+  }
+
+  // Goods the supervisor has handed a salesperson, waiting for them to press
+  // Received. Stays until they do, like a delivery to a branch.
+  if (viewer.role === "SALES") {
+    const toReceive = await prisma.stockRequest.findMany({
+      where: {
+        requestedById: viewer.userId,
+        kind: "ISSUE",
+        status: { in: ["PENDING", "APPROVED"] },
+        items: { some: { approvedQuantity: { gt: 0 }, receivedAt: null } },
+      },
+      select: { reviewedAt: true, approvedBy: { select: { name: true } } },
+      orderBy: { reviewedAt: "desc" },
+    });
+    if (toReceive.length > 0) {
+      out.push({
+        kind: "ISSUES_TO_RECEIVE",
+        count: toReceive.length,
+        tone: "action",
+        href: "/requests",
+        sample: [],
+        latest: toReceive[0].reviewedAt
+          ? { at: toReceive[0].reviewedAt.toISOString(), by: toReceive[0].approvedBy?.name ?? "" }
+          : undefined,
       });
     }
   }

@@ -4,6 +4,11 @@ import type {
 } from "fastify";
 
 import { Prisma } from "database";
+import { z } from "zod";
+
+import { loadViewer } from "../../middleware/auth.js";
+import { prisma } from "../../plugins/prisma.js";
+import { branchPrices } from "./branchPrice.js";
 
 import {
   createProductSchema,
@@ -68,19 +73,84 @@ export async function createProductController(
           message: "A voucher needs its value",
         });
       }
+
+      if (error.message === "PHONE_DETAILS_REQUIRED") {
+        return reply.status(400).send({
+          message: "Enter the phone's model and storage",
+        });
+      }
     }
 
     throw error;
   }
 }
 
+type Listed = Awaited<ReturnType<typeof getProducts>>[number];
+
+/**
+ * The Owner sees every product's own price and each branch's price. Everyone
+ * else sees the price at their own branch, and never the buying price.
+ */
 export async function getProductsController(
-  _request: FastifyRequest,
+  request: FastifyRequest,
   reply: FastifyReply,
 ) {
   const products = await getProducts();
 
-  return reply.send({ products });
+  if (request.user?.role === "OWNER") {
+    return reply.send({
+      products: products.map(({ branchPrices: set, ...product }: Listed) => ({
+        ...product,
+        branchPrices: set.map((row) => ({ branchId: row.locationId, name: row.location.name, price: row.price })),
+      })),
+    });
+  }
+
+  const viewer = await loadViewer(request);
+  const prices = await branchPrices(viewer?.branchId, products.map((product) => product.id));
+  return reply.send({
+    products: products.map(({ branchPrices: _set, ...product }: Listed) => ({
+      ...product,
+      price: prices.get(product.id) ?? product.price,
+      costPrice: null,
+    })),
+  });
+}
+
+const branchPriceSchema = z.object({ price: z.coerce.number().nonnegative().max(100_000_000) });
+
+/** The Owner sets what a product sells for at one branch... */
+export async function setBranchPriceController(
+  request: FastifyRequest<{ Params: { id: string; branchId: string } }>,
+  reply: FastifyReply,
+) {
+  const result = branchPriceSchema.safeParse(request.body);
+  if (!result.success) return reply.status(400).send({ message: "Enter a price" });
+
+  const [product, branch] = await Promise.all([
+    prisma.product.findUnique({ where: { id: request.params.id }, select: { id: true, status: true } }),
+    prisma.stockLocation.findUnique({ where: { id: request.params.branchId }, select: { id: true } }),
+  ]);
+  if (!product || product.status !== "ACTIVE") return reply.status(404).send({ message: "Product not found" });
+  if (!branch) return reply.status(404).send({ message: "Branch not found" });
+
+  await prisma.productBranchPrice.upsert({
+    where: { productId_locationId: { productId: product.id, locationId: branch.id } },
+    create: { productId: product.id, locationId: branch.id, price: result.data.price },
+    update: { price: result.data.price },
+  });
+  return reply.send({ message: "Saved" });
+}
+
+/** ...or takes it off, so the branch sells at the product's own price again. */
+export async function removeBranchPriceController(
+  request: FastifyRequest<{ Params: { id: string; branchId: string } }>,
+  reply: FastifyReply,
+) {
+  await prisma.productBranchPrice.deleteMany({
+    where: { productId: request.params.id, locationId: request.params.branchId },
+  });
+  return reply.send({ message: "Using the product's own price" });
 }
 
 export async function getProductController(
@@ -97,7 +167,14 @@ export async function getProductController(
     });
   }
 
-  return reply.send({ product });
+  if (request.user?.role === "OWNER") return reply.send({ product });
+
+  // Everyone else: their branch's price, and never the buying price.
+  const viewer = await loadViewer(request);
+  const prices = await branchPrices(viewer?.branchId, [product.id]);
+  return reply.send({
+    product: { ...product, price: prices.get(product.id) ?? product.price, costPrice: null },
+  });
 }
 
 export async function updateProductController(

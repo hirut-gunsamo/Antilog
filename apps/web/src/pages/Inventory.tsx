@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import rowStyles from '../components/RowMenu.module.css'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
@@ -7,16 +8,19 @@ import { icons } from '../components/icons'
 import { DeleteRowDialog } from '../components/inventory/DeleteRowDialog'
 import { EditRowDialog } from '../components/inventory/EditRowDialog'
 import { ReportLossDialog } from '../components/inventory/ReportLossDialog'
+import { BranchStockCard } from '../components/inventory/BranchStockCard'
 import { StockInDialog } from '../components/inventory/StockInDialog'
 import { Toasts } from '../components/Toasts'
 import { UnitDetails } from '../components/inventory/UnitDetails'
 import { api } from '../lib/api'
 import { useBranchList } from '../lib/branches'
 import { useT, type TranslationKey } from '../lib/i18n'
+import { businessDay } from '../lib/tz'
 import { usePageSize } from '../lib/prefs'
 import { useToasts } from '../lib/toasts'
 import { currency, count } from '../lib/format'
 import {
+  cartaSuffix,
   LOW_STOCK_THRESHOLD,
   stockStatus,
   type StockStatus,
@@ -44,12 +48,6 @@ const CATEGORY_PILL: Record<string, TranslationKey> = {
   SIM_CARD: 'inv.catSim',
   PHONE: 'inv.catPhone',
   AIRTIME_VOUCHER: 'inv.catVoucher',
-}
-
-const CATEGORY_ICON: Record<string, keyof typeof icons> = {
-  SIM_CARD: 'sim',
-  PHONE: 'phone',
-  AIRTIME_VOUCHER: 'ticket',
 }
 
 const STATUS_FILTERS: {
@@ -104,6 +102,12 @@ export default function Inventory() {
   const [branch, setBranch] = useState('ALL')
   const [status, setStatus] = useState<StockStatus | 'ALL'>('ALL')
   const [page, setPage] = useState(1)
+  // The Owner's period view: blank dates mean the live stock as it is now.
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  // What is typed in the pickers; the table only changes on Apply.
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -208,9 +212,11 @@ export default function Inventory() {
     return items.filter((item) => {
       if (tab !== 'ALL' && item.product.category !== tab) return false
       if (branch !== 'ALL' && item.location.id !== branch) return false
+      // The main store's stock is shown per branch in the Owner's stock card.
+      if (user?.role === 'OWNER' && item.location.isMainStock) return false
 
       if (status !== 'ALL') {
-        if (stockStatus(item.product.category, item.onShelf) !== status) {
+        if (stockStatus(item.product.category, item.quantity) !== status) {
           return false
         }
       }
@@ -228,7 +234,56 @@ export default function Inventory() {
 
       return true
     })
-  }, [items, tab, branch, status, search, serialMatches])
+  }, [items, tab, branch, status, search, serialMatches, user?.role])
+
+  // Opening, in, out and closing per product and branch for the chosen dates,
+  // worked back from today's balance through the movement history: closing is
+  // today's quantity less whatever moved after the end date.
+  const rangeOn = user?.role === 'OWNER' && (from !== '' || to !== '')
+  const periodStock = useMemo(() => {
+    if (!rangeOn) return null
+
+    const flow = new Map<string, { in: number; out: number; after: number }>()
+    const entry = (key: string) => {
+      let found = flow.get(key)
+      if (!found) {
+        found = { in: 0, out: 0, after: 0 }
+        flow.set(key, found)
+      }
+      return found
+    }
+
+    for (const move of movements) {
+      const day = businessDay(new Date(move.createdAt))
+      // Before the start it is already in the opening figure.
+      if (from && day < from) continue
+      const later = to !== '' && day > to
+
+      if (move.toLocation) {
+        const row = entry(`${move.productId}:${move.toLocation.id}`)
+        if (later) row.after += move.quantity
+        else row.in += move.quantity
+      }
+      if (move.fromLocation) {
+        const row = entry(`${move.productId}:${move.fromLocation.id}`)
+        if (later) row.after -= move.quantity
+        else row.out += move.quantity
+      }
+    }
+
+    const result = new Map<string, { opening: number; in: number; out: number; closing: number }>()
+    for (const item of items) {
+      const moved = flow.get(`${item.productId}:${item.locationId}`) ?? { in: 0, out: 0, after: 0 }
+      const closing = item.quantity - moved.after
+      result.set(item.id, {
+        opening: closing - moved.in + moved.out,
+        in: moved.in,
+        out: moved.out,
+        closing,
+      })
+    }
+    return result
+  }, [rangeOn, movements, items, from, to])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -239,7 +294,7 @@ export default function Inventory() {
 
   const isOwner = user?.role === 'OWNER'
   const filtersOn =
-    tab !== 'ALL' || branch !== 'ALL' || status !== 'ALL' || search !== ''
+    tab !== 'ALL' || branch !== 'ALL' || status !== 'ALL' || search !== '' || rangeOn
 
   // Changing any filter returns you to page one, otherwise a narrower result
   // set would leave you stranded on a page that no longer exists.
@@ -268,6 +323,10 @@ export default function Inventory() {
     setSearch('')
     setBranch('ALL')
     setStatus('ALL')
+    setFrom('')
+    setTo('')
+    setDraftFrom('')
+    setDraftTo('')
     setPage(1)
   }
 
@@ -293,7 +352,9 @@ export default function Inventory() {
   }
 
   // Export what is on screen, or just the ticked rows when there are any.
-  const exportName = `inventory-${new Date().toISOString().slice(0, 10)}.csv`
+  const exportName = periodStock
+    ? `inventory-${from || 'start'}-to-${to || businessDay()}.csv`
+    : `inventory-${businessDay()}.csv`
   const exportRows = selected.size > 0 ? selected.size : filtered.length
 
   function exportCsv() {
@@ -302,7 +363,6 @@ export default function Inventory() {
       : filtered
 
     const header = [
-      'SKU',
       'Product',
       'Category',
       'Branch',
@@ -311,6 +371,7 @@ export default function Inventory() {
       'Total',
       'Status',
       `Price (ETB)`,
+      ...(periodStock ? [`Opening ${from}`, 'In', 'Out', `Closing ${to || businessDay()}`] : []),
     ]
 
     const escape = (value: string) =>
@@ -320,7 +381,6 @@ export default function Inventory() {
       header.join(','),
       ...rows.map((row) =>
         [
-          row.product.sku,
           row.product.name,
           CATEGORY_PILL[row.product.category]
             ? t(CATEGORY_PILL[row.product.category])
@@ -332,10 +392,16 @@ export default function Inventory() {
           t(
             STATUS_FILTERS.find(
               (s) =>
-                s.value === stockStatus(row.product.category, row.onShelf),
+                s.value === stockStatus(row.product.category, row.quantity),
             )?.labelKey ?? 'inv.inStock',
           ),
           String(Number(row.product.price ?? 0)),
+          ...(periodStock
+            ? (() => {
+                const p = periodStock.get(row.id)
+                return p ? [p.opening, p.in, p.out, p.closing].map(String) : []
+              })()
+            : []),
         ]
           .map(escape)
           .join(','),
@@ -441,18 +507,82 @@ export default function Inventory() {
             </select>
           ) : null}
 
+          {/* Any period: pick a start and an end to see what each item
+              opened with, took in, sent out and closed on. */}
+          {isOwner ? (
+            <label className={styles.dates}>
+              <input
+                type="date"
+                value={draftFrom}
+                max={draftTo || undefined}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setDraftFrom(value)
+                  if (value && draftTo && value > draftTo) setDraftTo(value)
+                }}
+                aria-label={t('inv.fromDate')}
+              />
+              <span aria-hidden="true">–</span>
+              <input
+                type="date"
+                value={draftTo}
+                min={draftFrom || undefined}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setDraftTo(value)
+                  if (value && draftFrom && value < draftFrom) setDraftFrom(value)
+                }}
+                aria-label={t('inv.toDate')}
+              />
+              {rangeOn || draftFrom || draftTo ? (
+                <button
+                  type="button"
+                  className={styles.clearDates}
+                  onClick={() => {
+                    setFrom('')
+                    setTo('')
+                    setDraftFrom('')
+                    setDraftTo('')
+                  }}
+                  aria-label={t('inv.clearDates')}
+                  title={t('inv.clearDates')}
+                >
+                  ×
+                </button>
+              ) : null}
+            </label>
+          ) : null}
+
           {isOwner ? (
             <button
-              className={styles.primary}
               type="button"
-              onClick={() => setAddOpen(true)}
+              className={styles.apply}
+              onClick={() => {
+                setFrom(draftFrom)
+                setTo(draftTo)
+                setPage(1)
+              }}
             >
-              <Icon name="plus" size={15} />
-              {t('inv.add')}
+              {t('rep.apply')}
             </button>
           ) : null}
+
+          {/* Adding stock lives on the Owner's stock card below. */}
         </div>
       </header>
+
+      {/* The Owner's stock, kept per branch until each branch asks for it. */}
+      {isOwner ? (
+        <BranchStockCard
+          branch={branch}
+          reload={reloadKey}
+          onAdd={() => setAddOpen(true)}
+          onSaved={(message) => {
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
 
       <div className={styles.tiles}>
         {stat.map((tile) => (
@@ -596,6 +726,15 @@ export default function Inventory() {
           </button>
         </div>
 
+        {periodStock ? (
+          <p className={styles.periodNote}>
+            {t('inv.periodNote', {
+              from: from || '…',
+              to: to || businessDay(),
+            })}
+          </p>
+        ) : null}
+
         {filtered.length === 0 ? (
           <Empty>
             {items.length === 0
@@ -616,11 +755,18 @@ export default function Inventory() {
                         aria-label={t("common.selectAll")}
                       />
                     </th>
-                    <th scope="col">{t('inv.sku')}</th>
                     <th scope="col">{t('inv.product')}</th>
                     <th scope="col">{t('inv.category')}</th>
                     <th scope="col">{t('common.branch')}</th>
                     <th scope="col">{t(isSales ? 'inv.left' : 'inv.onShelf')}</th>
+                    {periodStock ? (
+                      <>
+                        <th scope="col">{t('inv.opening')}</th>
+                        <th scope="col">{t('inv.stockIn')}</th>
+                        <th scope="col">{t('inv.stockOut')}</th>
+                        <th scope="col">{t('inv.closing')}</th>
+                      </>
+                    ) : null}
                     <th scope="col">{t('common.status')}</th>
                     <th scope="col">{t('inv.price')}</th>
                     <th scope="col" className={styles.actionsCol}>
@@ -631,9 +777,11 @@ export default function Inventory() {
 
                 <tbody>
                   {pageRows.map((row) => {
+                    // Low only when the branch as a whole is low: goods out
+                    // with salespeople come back in the evening.
                     const state = stockStatus(
                       row.product.category,
-                      row.onShelf,
+                      row.quantity,
                     )
                     const unitCount = units.filter(
                       (unit) =>
@@ -645,10 +793,19 @@ export default function Inventory() {
                       <tr
                         key={row.id}
                         // Read by the phone layout's ::after to rebuild the
-                        // "SKU · Branch · N in stock" line without extra markup.
-                        data-meta={`${row.product.sku} · ${row.location.name} · ${t('inv.nInStock', { n: count(row.onShelf) })}`}
+                        // "Branch · N in stock" line without extra markup.
+                        data-meta={`${row.location.name} · ${t('inv.nInStock', { n: count(row.onShelf) })}`}
                         className={styles.clickableRow}
                         onClick={() => setDetailsOf(row)}
+                        // Enter or Space opens it from the keyboard, too.
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setDetailsOf(row)
+                          }
+                        }}
                       >
                         <td
                           className={styles.tick}
@@ -662,24 +819,7 @@ export default function Inventory() {
                           />
                         </td>
 
-                        <td data-label={t('inv.sku')}>
-                          <span className={styles.sku}>
-                            <span
-                              className={styles.skuIcon}
-                              data-category={row.product.category}
-                            >
-                              <Icon
-                                name={
-                                  CATEGORY_ICON[row.product.category] ?? 'box'
-                                }
-                                size={13}
-                              />
-                            </span>
-                            <span className="tabular">{row.product.sku}</span>
-                          </span>
-                        </td>
-
-                        <td data-label={t('inv.product')} className={styles.strong}>
+                        <td data-label={t('inv.product')} className={`${styles.strong} ${styles.productName}`}>
                           {row.product.name}
                         </td>
 
@@ -698,6 +838,7 @@ export default function Inventory() {
 
                         <td data-label={t(isSales ? 'inv.left' : 'inv.onShelf')} className="tabular">
                           {count(row.onShelf)}
+                          {cartaSuffix(row.product.category)}
                           {/* A salesperson's own stock: where it came from and went. */}
                           {row.mine ? (
                             <small style={{ display: 'block', opacity: 0.7 }}>
@@ -721,6 +862,23 @@ export default function Inventory() {
                           ) : null}
                         </td>
 
+                        {periodStock ? (
+                          <>
+                            <td data-label={t('inv.opening')} className="tabular">
+                              {count(periodStock.get(row.id)?.opening ?? 0)}
+                            </td>
+                            <td data-label={t('inv.stockIn')} className="tabular">
+                              {count(periodStock.get(row.id)?.in ?? 0)}
+                            </td>
+                            <td data-label={t('inv.stockOut')} className="tabular">
+                              {count(periodStock.get(row.id)?.out ?? 0)}
+                            </td>
+                            <td data-label={t('inv.closing')} className={`tabular ${styles.strong}`}>
+                              {count(periodStock.get(row.id)?.closing ?? 0)}
+                            </td>
+                          </>
+                        ) : null}
+
                         <td data-label={t('common.status')}>
                           <span className={styles.status} data-state={state}>
                             {t(
@@ -738,31 +896,9 @@ export default function Inventory() {
                           className={styles.actionsCol}
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <div className={styles.menuWrap}>
-                            <button
-                              className={styles.iconButton}
-                              type="button"
-                              aria-label={t('a11y.actionsFor', { name: row.product.name })}
-                              aria-haspopup="menu"
-                              aria-expanded={openMenu === row.id}
-                              onClick={() =>
-                                setOpenMenu(
-                                  openMenu === row.id ? null : row.id,
-                                )
-                              }
-                            >
-                              <Icon name="more" size={16} />
-                            </button>
-
-                            {openMenu === row.id ? (
-                              <div
-                                className={styles.menu}
-                                role="menu"
-                                ref={menuRef}
-                              >
-                                <button
+                          <div className={rowStyles.actions}>
+                                <button className={rowStyles.action}
                                   type="button"
-                                  role="menuitem"
                                   onClick={() => {
                                     setDetailsOf(row)
                                     setOpenMenu(null)
@@ -775,9 +911,8 @@ export default function Inventory() {
                                 </button>
 
                                 {!isOwner ? (
-                                  <button
+                                  <button className={rowStyles.action}
                                     type="button"
-                                    role="menuitem"
                                     onClick={() => {
                                       setLossOf(row)
                                       setOpenMenu(null)
@@ -789,9 +924,8 @@ export default function Inventory() {
 
                                 {isOwner ? (
                                   <>
-                                    <button
+                                    <button className={rowStyles.action}
                                       type="button"
-                                      role="menuitem"
                                       onClick={() => {
                                         setEditOf(row)
                                         setOpenMenu(null)
@@ -802,8 +936,7 @@ export default function Inventory() {
 
                                     <button
                                       type="button"
-                                      role="menuitem"
-                                      className={styles.menuDanger}
+                                      className={rowStyles.danger}
                                       onClick={() => {
                                         setDeleteOf(row)
                                         setOpenMenu(null)
@@ -813,9 +946,8 @@ export default function Inventory() {
                                     </button>
                                   </>
                                 ) : null}
-                              </div>
-                            ) : null}
-                          </div>
+                              
+</div>
                         </td>
                       </tr>
                     )

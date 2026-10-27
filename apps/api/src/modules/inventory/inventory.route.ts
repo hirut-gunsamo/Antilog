@@ -17,6 +17,8 @@ import {
   removeBalanceController,
   updateProductController,
   getHoldingsController,
+  listBranchStockController,
+  setBranchStockController,
 } from "./inventory.controller.js";
 
 type LocationParams = {
@@ -82,6 +84,14 @@ export async function inventoryRoutes(
     },
     stockInController,
   );
+
+  // The Owner's stock per branch, and correcting one branch's share.
+  app.get<{ Querystring: { branchId?: string } }>(
+    "/branch-stock",
+    { preHandler: [authorize(UserRole.OWNER)] },
+    listBranchStockController,
+  );
+  app.put("/branch-stock", { preHandler: [authorize(UserRole.OWNER)] }, setBranchStockController);
 
   // Corrections. All Owner-only for the same reason stock-in is: these change
   // what the business believes it holds.

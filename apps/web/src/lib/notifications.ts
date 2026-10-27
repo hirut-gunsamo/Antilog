@@ -107,6 +107,7 @@ const ALERT_KINDS = new Set<NotificationKind>([
   'REPORTS_TO_APPROVE',
   'RECEIPTS_TO_VERIFY',
   'LOSSES_TO_REVIEW',
+  'EDITS_TO_ALLOW',
 ])
 
 /**

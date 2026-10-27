@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import bulk from '../components/BulkDelete.module.css'
+import { BUSINESS_TZ, businessDay } from '../lib/tz'
+import { useSavedState } from '../lib/savedState'
 
 import { useAuth } from '../auth/context'
 import { Card, Empty } from '../components/Card'
 import { DownloadButton } from '../components/DownloadButton'
 import { icons } from '../components/icons'
 import { NewSaleDialog } from '../components/sales/NewSaleDialog'
+import { DaySummaryTable } from '../components/sales/DaySummaryTable'
+import { groupByDay, type BranchDeposit, type BranchYadereDaily, type OtherDay, type SalesDay } from '../lib/salesDays'
 import { SaleDetails } from '../components/sales/SaleDetails'
 import { Toasts } from '../components/Toasts'
 import { api } from '../lib/api'
@@ -13,7 +18,7 @@ import { count, currency, getCurrency, shortDate } from '../lib/format'
 import {
   isSameDay,
   saleItemCount,
-  saleItemSummary,
+  canEditSale,
   saleRef,
   STATUS_KEY,
 } from '../lib/sales'
@@ -58,7 +63,7 @@ function Icon({ name, size = 16 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function isoDay(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+  return businessDay(date)
 }
 
 export default function Sales() {
@@ -73,16 +78,21 @@ export default function Sales() {
   const [branch, setBranch] = useState('ALL')
   const [employee, setEmployee] = useState('ALL')
   const [category, setCategory] = useState('ALL')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useSavedState('sales:from', '')
+  const [to, setTo] = useSavedState('sales:to', '')
   const [page, setPage] = useState(1)
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [detailsOf, setDetailsOf] = useState<Sale | null>(null)
+  const [dayOpen, setDayOpen] = useState<SalesDay | null>(null)
+  // National ID and Telebirr per person per day, for the supervisor's days.
+  const [otherDays, setOtherDays] = useState<OtherDay[]>([])
+  const [branchDeposits, setBranchDeposits] = useState<BranchDeposit[]>([])
+  const [branchYadereDaily, setBranchYadereDaily] = useState<BranchYadereDaily[]>([])
+  const [branchOpening, setBranchOpening] = useState<Record<string, number>>({})
   const [creating, setCreating] = useState(false)
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
 
-  const menuRef = useRef<HTMLDivElement | null>(null)
   const { toasts, push, dismiss } = useToasts()
   const PAGE_SIZE = usePageSize()
   const t = useT()
@@ -112,24 +122,25 @@ export default function Sales() {
   }, [reloadKey, t])
 
   useEffect(() => {
-    if (!openMenu) return
-
-    function onDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) setOpenMenu(null)
-    }
-
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpenMenu(null)
-    }
-
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [openMenu])
+    if (!user) return
+    const controller = new AbortController()
+    const query = new URLSearchParams()
+    if (from) query.set('from', from)
+    if (to) query.set('to', to)
+    if (user.role === 'OWNER' && branch !== 'ALL') query.set('branchId', branch)
+    const path = query.size > 0 ? `/api/reports/other-daily?${query.toString()}` : '/api/reports/other-daily'
+    api<{ days: OtherDay[]; branchDeposits?: BranchDeposit[]; branchYadereDaily?: BranchYadereDaily[]; branchOpening?: Record<string, number> }>(path, {
+      signal: controller.signal,
+    })
+      .then((payload) => {
+        setOtherDays(payload.days ?? [])
+        setBranchDeposits(payload.branchDeposits ?? [])
+        setBranchYadereDaily(payload.branchYadereDaily ?? [])
+        setBranchOpening(payload.branchOpening ?? {})
+      })
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [reloadKey, user, from, to, branch])
 
   const rows = useMemo(() => sales ?? [], [sales])
 
@@ -221,12 +232,29 @@ export default function Sales() {
     })
   }, [rows, tab, branch, employee, category, from, to, search, user?.id])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  // A supervisor reads the branch's sales as one line per salesperson per
+  // day (SIM cards, airtime, phones and the total), not customer by customer.
+  const byDay = user?.role === 'SUPERVISOR' && tab === 'ALL'
+  // Item filters (category, search) leave National ID and Telebirr out.
+  const others = useMemo(() => {
+    if (!byDay || category !== 'ALL' || search.trim() !== '') return []
+    return otherDays.filter(
+      (row) =>
+        (employee === 'ALL' || row.person.id === employee) &&
+        (!from || row.date >= from) &&
+        (!to || row.date <= to),
+    )
+  }, [byDay, otherDays, category, search, employee, from, to])
+  const days = useMemo(() => (byDay ? groupByDay(filtered, others) : []), [byDay, filtered, others])
+  const listLength = byDay ? days.length : filtered.length
+
+  const totalPages = Math.max(1, Math.ceil(listLength / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const pageRows = filtered.slice(
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
   )
+  const pageDays = days.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const isSales = user?.role === 'SALES'
   const isOwner = user?.role === 'OWNER'
@@ -259,6 +287,18 @@ export default function Sales() {
   }
 
   const exportName = `sales-${isoDay(new Date())}.csv`
+  // Header Edit: the ticked sale's day, else today's latest own sale.
+  const ownSales = filtered.filter((sale) => sale.salesperson.id === user?.id)
+  const editTarget =
+    ownSales.find((sale) => selected.has(sale.id)) ??
+    ownSales.find((sale) => isSameDay(sale.saleDate, new Date())) ??
+    null
+  // Header Delete: only the ticked sales this person may remove.
+  const deletable = filtered.filter(
+    (sale) =>
+      selected.has(sale.id) &&
+      (user?.role === 'OWNER' || (sale.salesperson.id === user?.id && canEditSale(sale))),
+  )
   const exportRows = selected.size > 0 ? selected.size : filtered.length
 
   function exportCsv() {
@@ -296,7 +336,11 @@ export default function Sales() {
           String(saleItemCount(sale)),
           String(Number(sale.totalAmount)),
           String(Number(sale.cashReceived) + Number(sale.transferReceived)),
-          sale.paymentMethod === 'TRANSFER' ? 'Transfer' : 'Cash',
+          sale.paymentMethod === 'TRANSFER'
+            ? 'Transfer'
+            : sale.paymentMethod === 'MIXED'
+              ? `Cash ${Number(sale.cashReceived)} + Transfer ${Number(sale.transferReceived)}`
+              : 'Cash',
           sale.bankName ?? '',
           t(STATUS_KEY[sale.status]),
         ]
@@ -427,8 +471,9 @@ export default function Sales() {
           ) : null}
 
           {/* The API lets only a SALES user create a sale, so the button is
-              theirs alone rather than a 403 waiting to happen. */}
-          {isSales ? (
+              theirs alone rather than a 403 waiting to happen; and nothing is
+              sold at a main store. */}
+          {isSales && !user?.branch?.isMainStock ? (
             <button
               className={styles.primary}
               type="button"
@@ -572,6 +617,9 @@ export default function Sales() {
             ))}
           </select>
 
+          {/* Edit and Delete for the whole list, side by side after Reset:
+              Edit opens the day's totals (the ticked sale's day, or today);
+              Delete removes only the ticked sales. */}
           <button
             className={styles.reset}
             type="button"
@@ -580,16 +628,67 @@ export default function Sales() {
           >
             {t('common.reset')}
           </button>
+
+          {/* Same row as Reset, pushed to the right corner. */}
+          <div className={styles.bulkActions}>
+            <div style={{ display: 'inline-flex', gap: 10, whiteSpace: 'nowrap' }}>
+              {isSales ? (
+                <button
+                  type="button"
+                  className={bulk.edit}
+                  disabled={!editTarget}
+                  onClick={() => editTarget && setDetailsOf(editTarget)}
+                  title={t('sales.editHint')}
+                >
+                  {t('sales.edit')}
+                </button>
+              ) : null}
+              {isSales || isOwner ? (
+                <button
+                  type="button"
+                  className={bulk.button}
+                  disabled={deletable.length === 0}
+                  title={t('sales.deleteHint')}
+                  onClick={async () => {
+                    if (!window.confirm(t('sales.deleteManyConfirm', { n: deletable.length }))) return
+                    let failed = 0
+                    for (const sale of deletable) {
+                      try {
+                        await api(`/api/sales/${sale.id}`, { method: 'DELETE' })
+                      } catch {
+                        failed += 1
+                      }
+                    }
+                    setSelected(new Set())
+                    setReloadKey((n) => n + 1)
+                    if (failed > 0) push('error', t('sales.deleteSomeFailed', { n: failed }))
+                    else push('success', t('sales.deleted'))
+                  }}
+                >
+                  {deletable.length > 0 ? t('bulk.deleteN', { n: deletable.length }) : t('bulk.delete')}
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {listLength === 0 ? (
           <Empty>
-            {rows.length === 0
+            {rows.length === 0 && days.length === 0
               ? t('sales.noneYet')
               : t('sales.noMatch')}
           </Empty>
         ) : (
           <>
+            {byDay ? (
+              <DaySummaryTable
+                days={pageDays}
+                onOpen={setDayOpen}
+                branchDeposits={branchDeposits}
+                branchYadereDaily={branchYadereDaily}
+                branchOpening={branchOpening}
+              />
+            ) : (
             <div className={styles.scroll}>
               <table className={styles.table}>
                 <thead>
@@ -619,14 +718,10 @@ export default function Sales() {
                     <th scope="col">{t('sales.dateTime')}</th>
                     <th scope="col">{t('sales.employee')}</th>
                     <th scope="col">{t('common.branch')}</th>
-                    <th scope="col">{t('sales.items')}</th>
                     <th scope="col">{t('sales.qty')}</th>
                     <th scope="col">{t('sales.total', { currency: getCurrency() })}</th>
                     <th scope="col">{t('pay.received')}</th>
                     <th scope="col">{t('common.status')}</th>
-                    <th scope="col" className={styles.actionsCol}>
-                      {t('common.actions')}
-                    </th>
                   </tr>
                 </thead>
 
@@ -636,6 +731,7 @@ export default function Sales() {
                     const time = Number.isNaN(when.getTime())
                       ? ''
                       : when.toLocaleTimeString('en-GB', {
+                          timeZone: BUSINESS_TZ,
                           hour: '2-digit',
                           minute: '2-digit',
                         })
@@ -666,98 +762,63 @@ export default function Sales() {
                           />
                         </td>
 
-                        <td data-label={t('sales.saleId')} className={styles.ref}>
+                        <td data-label={t('sales.saleId')} className={`${styles.ref} ${styles.cellRef}`}>
                           {saleRef(sale)}
                         </td>
 
-                        <td data-label={t('sales.dateTime')}>
+                        <td data-label={t('sales.dateTime')} className={styles.cellWhen}>
                           {shortDate(sale.saleDate)}
                           <span className={styles.time}> {time}</span>
                         </td>
 
-                        <td data-label={t('sales.employee')}>{sale.salesperson.name}</td>
-                        <td data-label={t('common.branch')}>{sale.location.name}</td>
-                        <td data-label={t('sales.items')}>{saleItemSummary(sale)}</td>
-
-                        <td data-label={t('sales.qty')} className="tabular">
+                        <td data-label={t('sales.employee')} className={styles.cellEmployee}>
+                          {sale.salesperson.name}
+                        </td>
+                        <td data-label={t('common.branch')} className={styles.cellBranch}>
+                          {sale.location.name}
+                        </td>
+                        <td data-label={t('sales.qty')} className={`tabular ${styles.cellQty}`}>
                           {count(saleItemCount(sale))}
                         </td>
 
-                        <td data-label={t('det.total')} className={`${styles.strong} tabular`}>
+                        <td data-label={t('det.total')} className={`${styles.strong} tabular ${styles.cellTotal}`}>
                           {currency(Number(sale.totalAmount))}
                         </td>
 
-                        <td data-label={t('pay.received')} className="tabular">
+                        <td data-label={t('pay.received')} className={`tabular ${styles.cellReceived}`}>
                           {currency(Number(sale.cashReceived) + Number(sale.transferReceived))}
                           <small style={{ display: 'block', opacity: 0.7 }}>
                             {sale.paymentMethod === 'TRANSFER'
                               ? `${t('pay.transfer')} · ${sale.bankName ?? ''}`
-                              : t('pay.cash')}
+                              : sale.paymentMethod === 'MIXED'
+                                ? `${t('pay.cash')} ${currency(Number(sale.cashReceived))} + ${t('pay.transfer')} ${currency(Number(sale.transferReceived))} · ${sale.bankName ?? ''}`
+                                : t('pay.cash')}
                           </small>
                         </td>
 
-                        <td data-label={t('common.status')}>
+                        <td data-label={t('common.status')} className={styles.cellStatus}>
                           <span
                             className={styles.status}
                             data-state={sale.status}
                           >
                             {t(STATUS_KEY[sale.status])}
                           </span>
+                          {sale.editedAt ? <small style={{ display: 'block', opacity: 0.7 }}>{t('sales.edited')}</small> : null}
                         </td>
 
-                        <td
-                          className={styles.actionsCol}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <div className={styles.menuWrap}>
-                            <button
-                              className={styles.iconButton}
-                              type="button"
-                              aria-label={t('a11y.actionsFor', { name: saleRef(sale) })}
-                              aria-haspopup="menu"
-                              aria-expanded={openMenu === sale.id}
-                              onClick={() =>
-                                setOpenMenu(
-                                  openMenu === sale.id ? null : sale.id,
-                                )
-                              }
-                            >
-                              <Icon name="more" size={16} />
-                            </button>
-
-                            {openMenu === sale.id ? (
-                              <div
-                                className={styles.menu}
-                                role="menu"
-                                ref={menuRef}
-                              >
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setDetailsOf(sale)
-                                    setOpenMenu(null)
-                                  }}
-                                >
-                                  {t('sales.viewDetails')}
-                                </button>
-
-                              </div>
-                            ) : null}
-                          </div>
-                        </td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
+            )}
 
             <div className={styles.foot}>
               <span className={styles.showing}>
                 Showing {(safePage - 1) * PAGE_SIZE + 1}–
-                {Math.min(safePage * PAGE_SIZE, filtered.length)} of{' '}
-                {count(filtered.length)} sales
+                {Math.min(safePage * PAGE_SIZE, listLength)} of{' '}
+                {count(listLength)} {byDay ? t('ds.daysWord') : 'sales'}
                 {selected.size > 0 ? ` · ${selected.size} selected` : ''}
               </span>
 
@@ -808,9 +869,50 @@ export default function Sales() {
       <Toasts toasts={toasts} onDismiss={dismiss} />
 
       {detailsOf ? (
-        <SaleDetails sale={detailsOf} onClose={() => setDetailsOf(null)} />
+        <SaleDetails
+          sale={detailsOf}
+          onChanged={() => setReloadKey((n) => n + 1)}
+          // The same salesperson's day: their sales that day, oldest first,
+          // with National ID, Telebirr, deductions and deposits alongside.
+          day={
+            groupByDay(
+              rows
+                .filter(
+                  (row) =>
+                    row.salesperson.id === detailsOf.salesperson.id &&
+                    new Date(row.saleDate).toDateString() === new Date(detailsOf.saleDate).toDateString(),
+                )
+                .sort((a, b) => a.saleDate.localeCompare(b.saleDate)),
+              otherDays.filter((row) => row.person.id === detailsOf.salesperson.id),
+            ).find(
+              (entry) => entry.salesperson.id === detailsOf.salesperson.id && entry.sales.some((row) => row.id === detailsOf.id),
+            )
+          }
+          onClose={() => setDetailsOf(null)}
+        />
       ) : null}
 
+
+      {dayOpen ? (
+        <SaleDetails
+          day={dayOpen}
+          showEachSale={false}
+          onChanged={() => setReloadKey((n) => n + 1)}
+          onClose={() => setDayOpen(null)}
+        />
+      ) : null}
+
+      {editingSale ? (
+        <NewSaleDialog
+          editing={editingSale}
+          onClose={() => setEditingSale(null)}
+          onDone={(message) => {
+            setEditingSale(null)
+            push('success', message)
+            setReloadKey((n) => n + 1)
+          }}
+        />
+      ) : null}
 
       {creating ? (
         <NewSaleDialog

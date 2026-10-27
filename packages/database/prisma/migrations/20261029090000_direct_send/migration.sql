@@ -1,0 +1,1 @@
+ALTER TABLE "StockTransfer" ADD COLUMN "directSend" BOOLEAN NOT NULL DEFAULT false;

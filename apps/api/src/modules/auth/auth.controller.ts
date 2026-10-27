@@ -25,10 +25,14 @@ export async function login(
     });
   }
 
-  const token = await reply.jwtSign({
-    userId: user.id,
-    role: user.role,
-  });
+  // A sign-in lasts a working day at most; after that the password is asked again.
+  const token = await reply.jwtSign(
+    {
+      userId: user.id,
+      role: user.role,
+    },
+    { expiresIn: "12h" },
+  );
 
   return reply.send({
     message: "Login successful",

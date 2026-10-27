@@ -3,6 +3,8 @@ import type {
   FastifyRequest,
 } from "fastify";
 
+import { z } from "zod";
+
 import { loadViewer } from "../../middleware/auth.js";
 
 import {
@@ -19,7 +21,13 @@ import {
   approveRequest,
   rejectRequest,
   cancelRequest,
+  deleteRequest,
   decideRequestItems,
+  receiveIssue,
+  shipRequests,
+  approveQuantities,
+  updateRequest,
+  requestSources,
 } from "./request.service.js";
 
 type RequestParams = {
@@ -63,6 +71,11 @@ function handleRequestError(
           "The Owner receives restock requests rather than raising them",
       });
 
+    case "NO_SOURCE_SUPERVISOR":
+      return reply.status(409).send({
+        message: "That branch has no active supervisor to send the items",
+      });
+
     case "NO_BRANCH_SUPERVISOR":
       return reply.status(409).send({
         message: "Your branch has no active supervisor to receive this request",
@@ -104,6 +117,24 @@ function handleRequestError(
         message: "That is not a request your role can raise",
       });
 
+    case "NOT_YOUR_ISSUE":
+      return reply.status(403).send({ message: "Only the person who asked can receive it" });
+
+    case "INVALID_APPROVED_QUANTITY":
+      return reply.status(400).send({ message: "Each amount must be between 0 and what was asked for" });
+
+    case "ONE_BRANCH_PER_CAR":
+      return reply.status(400).send({ message: "One car goes to one branch: send each branch on its own" });
+
+    case "NOTHING_TO_RECEIVE":
+      return reply.status(400).send({ message: "Only goods issued to you are received" });
+
+    case "NOT_APPROVED_YET":
+      return reply.status(409).send({ message: "Your supervisor has not handed this over yet" });
+
+    case "ALREADY_RECEIVED":
+      return reply.status(409).send({ message: "You have already received this" });
+
     case "MORE_THAN_HELD":
       return reply.status(409).send({
         message: "That is more than the salesperson is holding",
@@ -126,9 +157,14 @@ function handleRequestError(
         message: "This request has already been reviewed",
       });
 
+    case "REQUEST_ALREADY_DECIDED":
+      return reply.status(409).send({
+        message: "This request has already been decided, so it can no longer be changed",
+      });
+
     case "NOT_YOUR_REQUEST":
       return reply.status(403).send({
-        message: "You can only cancel your own request",
+        message: "You can only cancel or delete your own request",
       });
 
     case "SOURCE_NOT_FOUND":
@@ -147,10 +183,15 @@ function handleRequestError(
           "A branch cannot restock from itself. Choose a different source.",
       });
 
+    case "NOT_ENOUGH_FOR_BRANCH":
+      return reply.status(409).send({
+        message: "Not enough stock held for this branch. Approve less, or add stock for this branch first",
+      });
+
     case "INSUFFICIENT_SOURCE_STOCK":
       return reply.status(409).send({
         message:
-          "The source branch does not have enough stock. Approve less, or ship from another branch",
+          "Not enough stock held for this branch. Approve less, or add stock for this branch first",
         shortages: (error as Error & { shortages?: Shortage[] })
           .shortages,
       });
@@ -227,6 +268,16 @@ export async function createRequestController(
       handleRequestError(error, reply) ?? Promise.reject(error)
     );
   }
+}
+
+export async function requestSourcesController(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+
+  return reply.send({ branches: await requestSources(viewer) });
 }
 
 export async function getRequestsController(
@@ -374,6 +425,26 @@ export async function cancelRequestController(
   }
 }
 
+export async function deleteRequestController(
+  request: FastifyRequest<{
+    Params: RequestParams;
+  }>,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+
+  try {
+    await deleteRequest(request.params.id, viewer);
+
+    return reply.send({ message: "Request deleted" });
+  } catch (error) {
+    return (
+      handleRequestError(error, reply) ?? Promise.reject(error)
+    );
+  }
+}
+
 export async function decideRequestItemsController(
   request: FastifyRequest<{
     Params: RequestParams;
@@ -412,5 +483,97 @@ export async function decideRequestItemsController(
     return (
       handleRequestError(error, reply) ?? Promise.reject(error)
     );
+  }
+}
+
+export async function receiveIssueController(
+  request: FastifyRequest<{ Params: RequestParams }>,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+
+  try {
+    const received = await receiveIssue(request.params.id, viewer);
+    return reply.send({ message: "Received", request: received });
+  } catch (error) {
+    return handleRequestError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+const shipSchema = z.object({
+  requestIds: z.array(z.string().min(1)).min(1).max(100),
+  sourceBranchId: z.string().min(1),
+  driverName: z.string().trim().min(2).max(120),
+  driverPhone: z
+    .string()
+    .trim()
+    .min(7, "A phone number needs at least 7 digits")
+    .max(24)
+    .regex(/^[+()\d][\d\s()+-]*$/, "Use digits, spaces, and + ( ) - only"),
+  vehiclePlate: z.string().trim().min(2).max(40),
+  notes: z.string().max(500).optional(),
+});
+
+/** One car for a branch: its decided requests go out as one shipment. */
+export async function shipRequestsController(request: FastifyRequest, reply: FastifyReply) {
+  const result = shipSchema.safeParse(request.body);
+  if (!result.success) {
+    return reply.status(400).send({ message: result.error.issues[0]?.message ?? "Choose the requests and the driver" });
+  }
+
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+
+  try {
+    const { requestIds, ...data } = result.data;
+    return reply.send({ message: "Sent", ...(await shipRequests(requestIds, data, viewer)) });
+  } catch (error) {
+    return handleRequestError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+const quantitiesSchema = z.object({
+  items: z
+    .array(z.object({ itemId: z.string().min(1), approvedQuantity: z.coerce.number().int().min(0) }))
+    .max(500),
+});
+
+/** The Owner approves how many of each item go; sending is its own step. */
+export async function approveQuantitiesController(
+  request: FastifyRequest<{ Params: RequestParams }>,
+  reply: FastifyReply,
+) {
+  const result = quantitiesSchema.safeParse(request.body);
+  if (!result.success) return reply.status(400).send({ message: "Enter how many of each item to approve" });
+
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+
+  try {
+    return reply.send({
+      message: "Approved",
+      request: await approveQuantities(request.params.id, result.data.items, viewer),
+    });
+  } catch (error) {
+    return handleRequestError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+/** The requester corrects a request nobody has decided yet. */
+export async function updateRequestController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const result = createRequestSchema.safeParse(request.body);
+  if (!result.success) {
+    return reply.status(400).send({ message: "Invalid request data", errors: result.error.flatten() });
+  }
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  try {
+    return reply.send({ message: "Request updated", request: await updateRequest(request.params.id, result.data, viewer) });
+  } catch (error) {
+    return handleRequestError(error, reply) ?? Promise.reject(error);
   }
 }

@@ -1,4 +1,4 @@
-import { Card } from '../Card'
+import { Card, Empty } from '../Card'
 import { CATEGORY_KEY, count, currency } from '../../lib/format'
 import { useT, type TranslationKey } from '../../lib/i18n'
 import styles from '../../pages/Reports.module.css'
@@ -27,11 +27,14 @@ export function ItemBreakdown({
   rows,
   branches,
   money = false,
+  alwaysShowPhones = false,
 }: {
   titleKey: TranslationKey
   rows: ItemRow[]
   branches: { id: string; name: string }[]
   money?: boolean
+  /** Show the phones table even when no phone is in the rows. */
+  alwaysShowPhones?: boolean
 }) {
   const t = useT()
 
@@ -127,6 +130,12 @@ export function ItemBreakdown({
           </Card>
         )
       })}
+
+      {alwaysShowPhones && !rows.some((row) => row.category === 'PHONE') ? (
+        <Card title={t(titleKey, { category: t(CATEGORY_KEY.PHONE) })}>
+          <Empty>{t('rep.noPhonesSold')}</Empty>
+        </Card>
+      ) : null}
     </>
   )
 }

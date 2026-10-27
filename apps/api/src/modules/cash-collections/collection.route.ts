@@ -5,7 +5,9 @@ import { authenticate, authorize } from "../../middleware/auth.js";
 
 import {
   collectCashController,
+  declareYadereController,
   getCollectionsController,
+  getMyYadereTodayController,
   getTeamCashController,
 } from "./collection.controller.js";
 
@@ -21,6 +23,10 @@ export async function collectionRoutes(app: FastifyInstance) {
 
   // Who in the branch is still holding cash, largest first.
   app.get("/team", getTeamCashController);
+
+  // A salesperson's own daily yadere declaration.
+  app.get("/yadere/today", getMyYadereTodayController);
+  app.post("/yadere", declareYadereController);
 
   app.post(
     "/",

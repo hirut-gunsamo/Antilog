@@ -69,7 +69,7 @@ function shape(user: RawUser) {
 async function requireBranch(branchId: string) {
   const branch = await prisma.stockLocation.findUnique({
     where: { id: branchId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, isMainStock: true },
   });
 
   if (!branch) {
@@ -79,25 +79,10 @@ async function requireBranch(branchId: string) {
   return branch;
 }
 
-// Mirrors the partial unique index `User_one_active_supervisor_per_branch`.
-// Checked here for a clean error message; the database is still the last word
-// if two requests race.
-async function assertBranchHasNoActiveSupervisor(
-  branchId: string,
-  exceptUserId?: string,
-) {
-  const existing = await prisma.user.findFirst({
-    where: {
-      branchId,
-      role: "SUPERVISOR",
-      isActive: true,
-      ...(exceptUserId ? { id: { not: exceptUserId } } : {}),
-    },
-    select: { id: true, name: true },
-  });
-
-  if (existing) {
-    throw new Error("BRANCH_HAS_SUPERVISOR");
+// Nothing is sold at a main store, so no salesperson works there.
+function assertSellerMayJoin(branch: { isMainStock: boolean }, role: string) {
+  if (role === "SALES" && branch.isMainStock) {
+    throw new Error("MAIN_STORE_NO_SELLERS");
   }
 }
 
@@ -113,11 +98,9 @@ export async function createUser(data: CreateUserInput) {
     throw new Error("EMAIL_EXISTS");
   }
 
-  await requireBranch(data.branchId);
+  const branch = await requireBranch(data.branchId);
+  assertSellerMayJoin(branch, data.role);
 
-  if (data.role === "SUPERVISOR") {
-    await assertBranchHasNoActiveSupervisor(data.branchId);
-  }
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 
@@ -327,9 +310,6 @@ export async function changeUserStatus(
   }
 
   // Reactivating a supervisor must not create a second active one.
-  if (isActive && user.role === "SUPERVISOR" && user.branchId) {
-    await assertBranchHasNoActiveSupervisor(user.branchId, id);
-  }
 
   const updated = await prisma.user.update({
     where: { id },
@@ -358,12 +338,10 @@ export async function moveUserToBranch(
     throw new Error("OWNER_HAS_NO_BRANCH");
   }
 
-  await requireBranch(branchId);
+  const branch = await requireBranch(branchId);
+  assertSellerMayJoin(branch, user.role);
 
   // An active supervisor can only move into a branch that has no active one.
-  if (user.role === "SUPERVISOR" && user.isActive) {
-    await assertBranchHasNoActiveSupervisor(branchId, id);
-  }
 
   const updated = await prisma.user.update({
     where: { id },

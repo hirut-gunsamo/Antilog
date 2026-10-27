@@ -8,6 +8,7 @@ import {
 } from "./settings.schema.js";
 
 import {
+  eraseActivity,
   exportBackup,
   getSettings,
   resetSettings,
@@ -55,6 +56,20 @@ export async function resetSettingsController(
     message: "Settings restored to their defaults",
     settings,
   });
+}
+
+// Typing ERASE is the confirmation: nothing is erased by a stray tap.
+export async function eraseAllController(
+  request: FastifyRequest<{ Body: { confirm?: unknown } }>,
+  reply: FastifyReply,
+) {
+  if (request.body?.confirm !== "ERASE") {
+    return reply.status(400).send({ message: "Type ERASE to confirm" });
+  }
+
+  await eraseActivity(request.user.userId);
+
+  return reply.send({ message: "All activity erased" });
 }
 
 // Read-only: it describes the guards the routes already enforce.

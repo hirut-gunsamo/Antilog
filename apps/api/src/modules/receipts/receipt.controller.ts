@@ -5,6 +5,8 @@ import type {
   FastifyRequest,
 } from "fastify";
 
+import { z } from "zod";
+
 import { loadViewer } from "../../middleware/auth.js";
 
 import {
@@ -17,6 +19,7 @@ import {
   deleteReceipt,
   getDaySummary,
   receiptBranch,
+  updateReceipt,
 } from "./receipt.service.js";
 
 type ReceiptParams = {
@@ -100,7 +103,7 @@ function handleReceiptError(
     case "RECEIPT_VERIFIED":
       return reply.status(409).send({
         message:
-          "A verified receipt is part of the record and cannot be deleted",
+          "A verified receipt can be deleted only with the Owner's permission. Use Ask the Owner to allow editing in its menu",
       });
 
     default:
@@ -357,8 +360,8 @@ export async function deleteReceiptController(
   }
 }
 
-// What the upload form shows before saving: the branch's sales for the day,
-// what has been credited already, and what is still left (yadere).
+// What the upload form shows before saving: yesterday's declared sales yadere
+// for the branch, what has already been credited today, and what is still left.
 export async function getDaySummaryController(
   request: FastifyRequest<{
     Querystring: { date?: string; branchId?: string };
@@ -378,5 +381,35 @@ export async function getDaySummaryController(
     return reply.send({ summary: day });
   } catch (error) {
     return handleReceiptError(error, reply) ?? Promise.reject(error);
+  }
+}
+
+const updateReceiptSchema = z.object({
+  amount: z.coerce.number().positive().max(1_000_000_000).optional(),
+  bankName: z.string().trim().max(120).nullable().optional(),
+  referenceNumber: z.string().trim().max(120).nullable().optional(),
+  receiptDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  notes: z.string().max(500).nullable().optional(),
+});
+
+export async function updateReceiptController(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const viewer = await withViewer(request, reply);
+  if (!viewer) return reply;
+  const result = updateReceiptSchema.safeParse(request.body);
+  if (!result.success) return reply.status(400).send({ message: "Check the amount and the date" });
+  try {
+    return reply.send({ receipt: await updateReceipt(request.params.id, result.data, viewer) });
+  } catch (error) {
+    const messages: Record<string, [number, string]> = {
+      RECEIPT_NOT_FOUND: [404, "Receipt not found"],
+      NOT_YOUR_RECEIPT: [403, "You can only change slips you uploaded"],
+      RECEIPT_VERIFIED: [409, "A receipt can be changed only with the Owner’s permission. Use Ask the Owner to allow editing in its menu"],
+    };
+    const known = error instanceof Error ? messages[error.message] : undefined;
+    if (!known) throw error;
+    return reply.status(known[0]).send({ message: known[1] });
   }
 }
